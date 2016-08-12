@@ -19,19 +19,10 @@ library(viridis)
 
 ### Read in Data 
 - Open script from Fremont16.Rproj in GitHub to ensure directories are correct
-- Creates basic df as well as projects a spatial dataframe
-+ currently unable to reproject into UTM; emailed Frank Smith @ VEMCO 8/11/2016
-+ result is that the latlong are in WGS84 and the XY are azimuthal. Which is exactly what it says in the 2015 report. nice. 
 ``` {r, echo=FALSE}
  load("Maestros/alldf.RData")
  options("digits.secs"=6)
  alldf$Time <- as.POSIXct(as.character(alldf$Time), format="%Y-%m-%d %H:%M:%OS", tz = "GMT")
-
-alldf.sp <- SpatialPointsDataFrame(coords = alldf[,c("Longitude","Latitude")], 
-              data = alldf, proj4string=CRS("+proj=aeqd +lat_0=38.759985 +lon_0=-121.666908 +x_0=1000 +y_0=1000 +datum=WGS84"))
-              # proj4string directly from VEMCO documentation
-
-# alldf.utm <- spTransform(alldf.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
 
  # N fish & positions beginning in dataframe
  print(paste0("Prior to filtering, ",nrow(alldf)," total posotions in dataset"))
@@ -41,6 +32,7 @@ alldf.sp <- SpatialPointsDataFrame(coords = alldf[,c("Longitude","Latitude")],
 ### Initial Data Cleaning
 - remove exessively high HPEs (<1000) for ease later
 - reduce dataset to only postions recorded after full VPS array was in place (don't yet have removal dates, so not incorporated here)
+- Create points in a spatial dataframe as well (both lat-long WGS84 & UTM)
 - other steps to include here?
 
 ``` {r, echo=FALSE}
@@ -51,53 +43,35 @@ alldf.sp <- SpatialPointsDataFrame(coords = alldf[,c("Longitude","Latitude")],
  # incomplete array
  alldfg <- alldf[alldf$Time > as.POSIXct("2016-02-109 14:00:00", tz="GMT"),]
   print(paste0(nrow(alldf) - nrow(alldfg)," positions removed due to incomplete VPS array"))
+  
+ # sp dataframes
+alldfg.sp <- SpatialPointsDataFrame(coords = alldfg[,c("Longitude","Latitude")], 
+              data = alldf, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+        # confirmed string with VEMCO; the XY coords in azimuthal equal area
+alldfg.utm <- spTransform(alldfg.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+
 ```
 
 ***
 
 ### Explore HPEs relationship with measured error for sync and reference tags 
 - Only positions with Hpes<1000
-- Currently uses Heversine formula with earth's radius est = 6371 km to calc distance between lat-long coords
-- Eventually would like to first convert to UTM to faciliate calculating distances between points
-- actually, silly girl, use the XY coordinates already in here. Wow. 
+- Uses XY coordinates from VEMCO (Azimuthal Equal Area Projection)
 
 ``` {r, echo=FALSE, warning=FALSE}
- allsync <- read.csv("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir2016/DATA/Positions/AllSyncRef.csv")
+   allsync <- read.csv("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir2016/DATA/Positions/AllSyncRef.csv")
 
- options("digits"=15)
- calibsync <- read.csv("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir2016/DATA/AnalysisPack1/CalibratedStationPositions.csv")
+   options("digits"=15)
+   calibsync <- read.csv("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir2016/DATA/AnalysisPack1/CalibratedStationPositions.csv")
    calib.nameindex = read.csv("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir2016/DATA/AnalysisPack1/CalibratedStationPositionsIndex.csv")
-   calibsync <- merge(calib.nameindex, calibsync, by="Name", all.x=T); names(calibsync) <- c("Name","Id","LongId","TrueLat","TrueLon","X","Y")
+   calibsync <- merge(calib.nameindex, calibsync, by="Name", all.x=T)
+    names(calibsync) <- c("Name","Id","LongId","TrueLat","TrueLon","TrueX","TrueY")
   
- allsync.calib <- merge(allsync, calibsync[,c("Id","TrueLat","TrueLon")], by="Id", all.x=T) 
-  allsync.calib <- allsync.calib[allsync.calib$Hpes<1000,]
+   allsync.calib <- merge(allsync, calibsync[,c("Id","TrueLat","TrueLon", "TrueX","TrueY")], by="Id", all.x=T) 
+    allsync.calib <- allsync.calib[allsync.calib$Hpes<1000,]
 
-#   # convert to utm and calc dist btwn detected and calibrated points
-#  ### currently doesn't work; email to Frank Smith (vemco) for help 8/11/2016
-#   synccalib.sp <-  SpatialPointsDataFrame(coords = allsync.calib[,c("TrueLon","TrueLat")], 
-#                           data = allsync.calib[,c("Id","Time","Hpes")], 
-#                           proj4string=CRS("+proj=aeqd +lat_0=38.759985 +lon_0=-121.666908 +x_0=1000 +y_0=1000 +datum=WGS84"))
-#   synccalib.utm <- spTransform(synccalib.sp, CRS("+proj=utm +zone=10 +ellps=GRS80 +units=m +no_defs")) #EPSG:3157
-#   syncdet.sp <-  SpatialPointsDataFrame(coords = allsync.calib[,c("Longitude","Latitude")], 
-#                           data = allsync.calib[,c("Id","Time","Hpes")], 
-#                           proj4string=CRS("+proj=aeqd +lat_0=38.759985 +lon_0=-121.666908 +x_0=1000 +y_0=1000 +datum=WGS84"))
-#   syncdet.utm <- spTransform(syncdet.sp, CRS("+proj=utm +zone=10 +ellps=GRS80 +units=m +no_defs")) #EPSG:3157
-#      utm.error = sqrt((synccalib.utm$TrueLat - syncdet.utm$Latitude)^2 + (synccalib.utm$TrueLon - syncdet.utm$Longitude)^2)
-
- 
   # Calculate distance btwn lat-long coords
-  # Use Haversine formula, as found on "andrew.hedges.name/experiments/haversine"; doesn't account for elipsoid 
-  
-    # function to convert degrees to radians
-        deg2rad <- function(deg) {(deg * pi) / (180)}
-    # use function in Haversine formula to calculate distanced between points
-         dlat = deg2rad(allsync.calib$Latitude - allsync.calib$TrueLat)
-         dlon = deg2rad(allsync.calib$Longitude - allsync.calib$TrueLon)
-         a = (sin(dlat/2))^2 + cos(allsync.calib$TrueLat) * cos(allsync.calib$Latitude) * (sin(dlon/2))^2
-         c = 2 * atan2(sqrt(a), sqrt(1-a))
-         R = 6371000 # est m radius of earth @ equator
-         error = R * c
-    allsync.calib$error_m <- error
+   allsync.calib$error_m =  sqrt((allsync.calib$TrueX - allsync.calib$X)^2 + (allsync.calib$TrueY - allsync.calib$Y)^2)
   
   # point data for measured error vs HPEs   
    plot(allsync.calib$error_m ~ allsync.calib$Hpes, xlim=c(0,1000), ylab="measured error", xlab="HPEs")
@@ -147,9 +121,10 @@ alldf.sp <- SpatialPointsDataFrame(coords = alldf[,c("Longitude","Latitude")],
     
     hpeperc = ggplot(cumperc, aes(x=HPEs-.25/2, y=PercPos, width = .225)) + geom_bar(stat="identity", fill="grey80") + theme_bw() + xlim(-0.5, 8) + xlab("Calculated HPEs") + ylab("% of Positions Retained")
     
+    png("Graphics/HPE_MeasVsCalib.png", width=5, height=6, units="in", res=600)
     ggdraw() + draw_plot(hpestats, 0.05,.3,0.95,.7) + draw_plot(hpeperc, 0.05, 0, 0.95, .275) +
       draw_plot_label(c("A","B"),c(0,0), c(.95,.20), size=12)
-    
+    dev.off()
     
     print(paste0("At threshold of HPEs<1, mean measured error (m) of sync/ref positions = ",round(mean(allsync.calib$error_m[allsync.calib$Hpes<1]),2)))
     print(paste0("At threshold of HPEs<1, median measured error (m) of sync/ref positions = ",round(median(allsync.calib$error_m[allsync.calib$Hpes<1]),2)))
@@ -160,9 +135,8 @@ Based on these graphics I will use a HPE filtering threshold of HPE=1; this seem
 
 ***
 
-### Distribution of HPEs in fish positions (Similiar to Fig 9 in 2015 report)
-- Eventually will project remaining and removed positions into spatial data to make maps cleaner and integrate river bank
-+ currently, the reprojection from VEMCO's aeqd is not working (see above)
+### Spatial distribution of HPEs in fish positions (Similiar to Fig 9 in 2015 report)
+- Eventually will add river line to these plots but needs more research to do in ggplot
 ``` {r, echo=FALSE, warnings=FALSE, fig.height=9}
   # Fig 9, similar  
   nHighHpe <- nrow(alldfg[alldfg$Hpes>=5,])
@@ -173,13 +147,30 @@ Based on these graphics I will use a HPE filtering threshold of HPE=1; this seem
   percLow <-(nLowHpe/(nLowHpe+nHighHpe+nKeepHpe))*100
   percKeep <- (nKeepHpe/(nLowHpe+nHighHpe+nKeepHpe))*100
     
-    highhpe=ggplot(alldfg[alldfg$Hpes>=5 & alldfg$Hpe<50,], aes(y=Latitude, x=Longitude, colour=Hpes)) + geom_point(size=1.5) + 
+  # read in the river channel and project properly
+  riverbank = readOGR(dsn="GIS/2004_channel", layer="2004_channel_freTightclipWGS84")
+     # convert to be useful in ggplot; still not sure what this actually does       
+      ggriverbank <- fortify(riverbank, region="BYDEL")
+      
+    highhpe=ggplot(data=alldfg[alldfg$Hpes>=5 & alldfg$Hpes<50,], aes(y=Latitude, x=Longitude, colour=Hpes)) + 
+      geom_point(size=1.5) + 
       scale_colour_gradient2(name="HPEs", low = "green3", mid="yellow", high = "red", midpoint=15, space = "rgb", na.value = "grey50", guide = "colourbar") +
       ggtitle(paste0("Positional HPEs > 5: ",round(percHigh,1),"% of all positions")) +
       scale_y_continuous(breaks=seq(38.758,38.764,0.001)) + 
       scale_x_continuous(breaks=seq(-121.672, -121.664, 0.001)) +
       coord_fixed() + 
       theme_bw() + theme(title=element_text(vjust=2), axis.title.x=element_text(vjust=-.5),axis.title.y=element_text(vjust=1))
+
+# other code that sucessfully adds river line; unsure why I can't integrate it easily into the above
+#     ptdens.keep =  ggplot(data=alldfg[alldfg$Hpes>=5 & alldfg$Hpes<50,],aes(Longitude,Latitude)) + 
+#             geom_point(alpha=.1, color="grey80") + 
+#             scale_fill_continuous(low="white",high="blue") +
+#             guides(alpha="none") + coord_fixed(ratio=1) + 
+#             geom_path(data = ggriverbank, aes(long, lat, group=group)) +
+#             scale_y_continuous(label=roundfunc) +  scale_x_continuous(label=roundfunc) + 
+#             commonTheme
+
+    
     
     lowhpe=ggplot(alldfg[alldfg$Hpes<5 & alldfg$Hpes>=1,], aes(y=Latitude, x=Longitude, colour=Hpes)) + geom_point(size=1.5) + 
       scale_colour_gradient2(name="HPEs", low = "green3", mid="yellow", high = "red", midpoint=3, space = "rgb", na.value = "grey50", guide = "colourbar") +
@@ -244,7 +235,7 @@ Here is an excerpt from VEMCO's results document that is returned with the post-
 
 ***
 
-### Distributions of individual detections/GoodBasic positions for each calculated fish location:
+### Histograms of individual detections/GoodBasic positions for each calculated fish location:
 - not of much interest but code was already written
 ``` {r, echo=FALSE} 
   ### not in report ###
@@ -416,6 +407,8 @@ Positions per Fish") +
     long.fish = fl.df2[fl.df2$arraytime_min > 150,]$Id
       # 36379 36398 36472 36483 36612 36675 65068 65069 65070 65073 65124
    print(paste0(length(long.fish)," individual tags with >150 min passage time"))
+   print(paste0("TagIDs ", long.fish))
+
     
    # calculate location of final detection; upstream?  
    hist(fl.df2$L.long, xlab="Longitude (upstream to downstream)", 
@@ -424,7 +417,16 @@ Positions per Fish") +
     upfish = fl.df2[fl.df2$L.long < -121.6679,]$Id
       # 36472 65124
     print(paste0(length(upfish)," fish exited at upstream end of array"))
+    print(paste0("TagIDs ", upfish))
+    
+    # plot upfish and longfish
+    ggplot(data=reddf[reddf$Id %in% unique(c(upfish, long.fish)),], aes(x=Longitude, y=Latitude)) +
+     geom_path(aes(colour=as.POSIXlt(Time)$hour)) + 
+     facet_wrap(~Id, ncol=4) + scale_colour_gradientn(colours=rainbow(6), name="Hour of Day") + 
+     ggtitle("Questionable Smolts:\nUpstream Movement and Long-Passage, positions filtered HPEs<1") + 
+     theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
 ```
 
 ### Last to-do: Use these graphics to decide which tags to evaluate further for evidence of predation
-my first instict is none, or very very few
+- perhaps best to re-address this after the filtering for speed? Four of these strange tracks might be due to errors which would be captured in a speed-filter
