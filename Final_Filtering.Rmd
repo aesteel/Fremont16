@@ -1,0 +1,83 @@
+---
+title: "Data Filtering Process, Condensed"
+author: "Anna Steel"
+date: "August 12, 2016"
+output: html_document
+---
+
+## Filtering of VEMCO post-processed VPS positions
+
+This code runs from the datafiles provided by VEMCO, and builds final datasets for analysis
+Also includes reference numbers to track how filtering affects the dataset
+
+__metrics considered include number of positions, number of fish in dataset, and positions per fish__
+
+* filters by HPE: see 'Exploration_DataFiltering' for details
+* filters by speed:
+* filters for likely predators:
+* filters out sparse tracks:
+* breaks apart tracks with large gaps (for subsequent smoothing/rediscretization)
+
+```{r, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+```
+
+### Read in Data & Clean for proper dates and TagIDs
+- Open script from Fremont16.Rproj in GitHub to ensure directories are correct
+``` {r, echo=FALSE}
+ load("Maestros/alldf.RData")
+ options("digits.secs"=6)
+ alldf$Time <- as.POSIXct(as.character(alldf$Time), format="%Y-%m-%d %H:%M:%OS", tz = "GMT")
+
+ # incomplete array
+ alldfg <- alldf[alldf$Time > as.POSIXct("2016-02-109 14:00:00", tz="GMT"),]
+  print(paste0(nrow(alldf) - nrow(alldfg)," positions removed due to incomplete VPS array"))
+ 
+ # N fish & total N positions
+ print(paste0("Prior to filtering, ",nrow(alldf)," total positions in dataset"))
+ print(paste0("Prior to filtering, ",length(unique(alldf$Id))," individual fish positioned"))
+
+ # N pos per fish 
+  all.npf = alldfg %>%
+   group_by(Id) %>%
+   summarize(npos.all=n())%>%
+   data.frame()
+
+  print("Summary of N positions per fish, after reducing to applicable data")
+  summary(all.npf$npos.all)
+```
+
+### HPE filter: <1.0 HPEs
+After filtering @ HPEs < 1, dataset retained:
+```{r, echo=FALSE}
+ reddf = alldfg[alldfg$Hpes < 1,]
+  
+  # N fish & total N positions
+   print(paste0(nrow(reddf)," positions")) # 110,211  
+    print(paste0("   ",round(nrow(reddf)/nrow(alldfg)*100,2), "% of fish tag positions"))  # 84.35%
+   print(paste0(length(unique(reddf$Id))," individual fish"))  # 438
+    print(paste0("   ",round((length(unique(reddf$Id))/length(unique(alldf$Id)))*100,1),"% of individual fish retained "))  # 438
+   
+   
+  # N pos per fish after HPE filtering
+  red.npf = reddf %>%
+   group_by(Id) %>%
+   summarize(npos.red= n()) %>%
+   data.frame()
+  
+  print("Summary of N positions per fish, after filtering at HPE<1")
+  summary(red.npf$npos.red)   
+
+```
+
+#### Write out HPE filtered dataset
+```{r}
+  save(reddf, file="Maestros/AllFishHPEfilt.RData")

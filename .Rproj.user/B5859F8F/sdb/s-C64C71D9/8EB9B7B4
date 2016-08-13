@@ -1,0 +1,18 @@
+{
+    "contents" : "---\ntitle: \"Data Filtering Process, Condensed\"\nauthor: \"Anna Steel\"\ndate: \"August 12, 2016\"\noutput: html_document\n---\n\n## Filtering of VEMCO post-processed VPS positions\n\nThis code runs from the datafiles provided by VEMCO, and builds final datasets for analysis\nAlso includes reference numbers to track how filtering affects the dataset\n\n__metrics considered include number of positions, number of fish in dataset, and positions per fish__\n\n* filters by HPE: see 'Exploration_DataFiltering' for details\n* filters by speed:\n* filters for likely predators:\n* filters out sparse tracks:\n* breaks apart tracks with large gaps (for subsequent smoothing/rediscretization)\n\n```{r, include=FALSE} \n# required packages\nlibrary(dplyr)\nlibrary(sp)\nlibrary(rgdal)\nlibrary(rgeos)\nlibrary(ggplot2)\nlibrary(grid) \nlibrary(cowplot)\nlibrary(viridis)\n```\n\n### Read in Data & Clean for proper dates and TagIDs\n- Open script from Fremont16.Rproj in GitHub to ensure directories are correct\n``` {r, echo=FALSE}\n load(\"Maestros/alldf.RData\")\n options(\"digits.secs\"=6)\n alldf$Time <- as.POSIXct(as.character(alldf$Time), format=\"%Y-%m-%d %H:%M:%OS\", tz = \"GMT\")\n\n # incomplete array\n alldfg <- alldf[alldf$Time > as.POSIXct(\"2016-02-109 14:00:00\", tz=\"GMT\"),]\n  print(paste0(nrow(alldf) - nrow(alldfg),\" positions removed due to incomplete VPS array\"))\n \n # N fish & total N positions\n print(paste0(\"Prior to filtering, \",nrow(alldf),\" total positions in dataset\"))\n print(paste0(\"Prior to filtering, \",length(unique(alldf$Id)),\" individual fish positioned\"))\n\n # N pos per fish \n  all.npf = alldfg %>%\n   group_by(Id) %>%\n   summarize(npos.all=n())%>%\n   data.frame()\n\n  print(\"Summary of N positions per fish, after reducing to applicable data\")\n  summary(all.npf$npos.all)\n```\n\n### HPE filter: <1.0 HPEs\nAfter filtering @ HPEs < 1, dataset retained:\n```{r, echo=FALSE}\n reddf = alldfg[alldfg$Hpes < 1,]\n  \n  # N fish & total N positions\n   print(paste0(nrow(reddf),\" positions\")) # 110,211  \n    print(paste0(\"   \",round(nrow(reddf)/nrow(alldfg)*100,2), \"% of fish tag positions\"))  # 84.35%\n   print(paste0(length(unique(reddf$Id)),\" individual fish\"))  # 438\n    print(paste0(\"   \",round((length(unique(reddf$Id))/length(unique(alldf$Id)))*100,1),\"% of individual fish retained \"))  # 438\n   \n   \n  # N pos per fish after HPE filtering\n  red.npf = reddf %>%\n   group_by(Id) %>%\n   summarize(npos.red= n()) %>%\n   data.frame()\n  \n  print(\"Summary of N positions per fish, after filtering at HPE<1\")\n  summary(red.npf$npos.red)   \n\n```\n\n#### Write out HPE filtered dataset\n```{r}\n  save(reddf, file=\"Maestros/AllFishHPEfilt.RData\")\n",
+    "created" : 1471038189152.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "4013371545",
+    "id" : "8EB9B7B4",
+    "lastKnownWriteTime" : 1471043763,
+    "path" : "~/GitHub/Fremont16/Final_Filtering.Rmd",
+    "project_path" : "Final_Filtering.Rmd",
+    "properties" : {
+        "tempName" : "Untitled1"
+    },
+    "relative_order" : 3,
+    "source_on_save" : false,
+    "type" : "r_markdown"
+}

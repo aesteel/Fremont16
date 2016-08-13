@@ -1,5 +1,5 @@
 ---
-title: "Exploration for Data Filtering"
+title: "Exploration for Data Filtering HPE"
 author: "Anna Steel"
 date: "August 10, 2016"
 output: html_document
@@ -370,6 +370,7 @@ Positions per Fish") +
   plot_grid(  poor.pre, poor.post, ncol=1, nrow=2)
 ```  
 
+# move code below here to new file for filtering based on predators
 
 ### Look at fish tracks for potential predators
 - high number of detections

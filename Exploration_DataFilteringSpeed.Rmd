@@ -1,0 +1,125 @@
+---
+title: "Exploration for Data Filtering Speed"
+author: "Anna Steel"
+date: "August 12, 2016"
+output: html_document
+---
+
+```{r, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+```
+
+### Load and prepare dataset 
+- add UTM coordinates
+```{r}
+load("Maestros/AllFishHPEfilt.RData")
+
+# Critical to order this properly for the ordered step analysis below (TypeI)
+reddf = reddf[order(reddf$Id, reddf$Time),]  
+  reddf$IDcol = 1:nrow(reddf)
+
+# # convert the Lat Long into UTMs using 'sp'
+reddf.sp <- SpatialPointsDataFrame(coords = reddf[,c("Longitude","Latitude")], 
+              data = reddf, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+        # confirmed string with VEMCO; the XY coords in azimuthal equal area
+reddf.utm <- spTransform(reddf.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+ reddf.utm@data[,c("east","north")] <- reddf.utm@coords
+ 
+ reddf2 = reddf.utm@data    
+```
+
+### Use adehabitatLT to calculate descriptive metrics for each unprocessed track
+- irregular typeII track (time is recorded, not just order, and points are not evenly distributed)
+- calculates distance between points, time lapsed between points, turning angles, and direct distance from start point
+-- Use UTM  so distances calculated in meters not degrees
+-- Note: the distance & time calculates is the distance traveled in the SUBSEQUENT step (i to i+1)
+- I add speed between each step, mean speed over ground for each animal, and mean speed for all fish
+```{r}
+   red.ltraj = as.ltraj(xy=reddf2[,c("east","north")], date=reddf2$Time, 
+                        id=reddf2$Id, infolocs = reddf2[,c("Id","Hpes")])
+ 
+   red2 = ld(red.ltraj)
+   red2$spd_mps = red2$dist / red2$dt
+   
+   meanspds = data.frame(summarize(group_by(red2, Id), mean_mps=mean(spd_mps, na.rm=T), sd_mps=sd(spd_mps, na.rm=T)))
+   
+   print(paste0("mean speed over ground (mean of fish means) = ", round(mean(meanspds$mean_mps, na.rm=T),2), "(SD=", round(sd(meanspds$sd_mps, na.rm=T),2), ") meters per second"))
+    
+```
+
+### Identify questionable detections based on speeds to and from point
+The concept here is that some points with low HPEs values are still erronious positions.
+If the speed over ground is excessive in both the prior (i-1) and subsequent (i) steps, it is likely that the position (i) has extordinarily high error and should be removed. 
+We will begin by considering any points greater than 10.6 (99.5% quantile) as erronious, then reassess the tracks to see if we need to set a lower cutoff
+```{r}
+hist(red2$spd_mps, xlim=c(0,50), breaks=200, ylim=c(0,2000), xlab="Speed over Ground", main="Speed over Ground, Between Consecutive Points\nFiltered to HPE<1")
+ abline(v=quantile(red2$spd_mps, .995, na.rm=T), col="red", lty=2)
+```
+
+To Do next:
+work through following code to identify and remove points with speed in previous and subsequent steps >10.6mps
+        
+    # create new columns in dataframe
+     red2$prevspd = NA
+     red2$badpos = NA
+    
+    # put the previous speed on the same line as the current speed
+     red2$prevspd <- c(NA,red2$spd_mps[1:(nrow(red2)-1)])
+      
+    # if there one speed less than the cuttoff, consider the detection okay (in reality may not be, but it's gonna be more complicated)
+    # if two subsequent speeds are greater than the cuttoff, we have a bad detection
+    #    - the bad point should have high speeds in the line before it (step leading to it) and in its line (step leading from it)
+    #    - so it is the second high value in a pair that is in the same line as the bad position
+     red.gp = red2 %>%
+       group_by(id) %>%
+       mutate(badpos=(spd_mps>5 & prevspd>5) )  ###### is 5 mps a reasonable cutoff? What should we use? ######
+     rednew = as.data.frame(red.gp)
+    
+    # remove 'bad' positions --> as of June 3, 2015 this removed 322 positions (0.444%) with cutoff of 5mps; removes 414 with cutoff of 4mps
+     badpos = rednew[rednew$badpos==TRUE,]  # included 117 fish
+       badpos.fish = summarize(group_by(badpos, id), nremoved=n())
+    
+     red2new = rednew[rednew$badpos==FALSE,]
+
+
+     
+run through ltraj again to recalculate speeds     
+    
+    # reduce to basic data, make the coords spatial, and convert to ltraj
+     red2base = red2new[c("x","y","date","id","run","HPE")]
+      red2base = red2base[!is.na(red2base$x),]  # somehow the previous processs adds and NA into the dataframe
+      red2base$date = as.POSIXct(red2base$date)
+      ixy = data.frame(red2base[,c("id","x","y")])
+        coordinates(ixy) = c("x","y")
+        proj4string(ixy) = CRS("+proj=utm +zone=10 +ellps=WGS84 +datum=WGS84 +units=m +no_defs")
+      
+     red3 = as.ltraj(xy=red2base[,c("x","y")], date=red2base$date, id=red2base$id, infolocs = red2base[,c("id","run","HPE")])
+    
+    # convert back to dataframe 
+     red3.df = ld(red3)
+       red3.df$spd_mps = red3.df$dist/red3.df$dt
+    
+    
+    
+check for improved speeds
+
+     range(red3.df$spd_mps, na.rm=T)  # STILL has a speed of 73.1 mps. =/
+    
+     trash = red3.df[red3.df$spd_mps>5,]
+       trash = trash[!is.na(trash$id),]
+       dim(trash)  # still 368 lines with high speeds. better, but not done yet. =/
+       ht(trash)
+
+
+Maybe run process again? Think through this final step once more
+
+Then write out new dataframe; not sure if I can make this concise enough to integrate into "Final_Filtering.Rmd"
