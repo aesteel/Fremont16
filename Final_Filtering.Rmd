@@ -80,4 +80,55 @@ After filtering @ HPEs < 1, dataset retained:
 
 #### Write out HPE filtered dataset
 ```{r}
-  save(reddf, file="Maestros/AllFishHPEfilt.RData")
+  save(reddf, file="Maestros/AllFishPrimaryFilt.RData")
+```
+## End of Primary Filtering Process
+
+***
+
+## Beginning of Secondary Filtering Process
+
+### Excessive Speeds Filtering
+```{r}
+
+# Critical to order this properly for the ordered step analysis below (TypeI)
+reddf = reddf[order(reddf$Id, reddf$Time),]  
+  reddf$IDcol = 1:nrow(reddf)
+
+# # convert the Lat Long into UTMs using 'sp'
+ reddf.sp <- SpatialPointsDataFrame(coords = reddf[,c("Longitude","Latitude")], 
+              data = reddf, 
+              proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+        # confirmed string with VEMCO; the XY coords in azimuthal equal area
+ reddf.utm <- spTransform(reddf.sp, 
+                          CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+ reddf.utm@data[,c("east","north")] <- reddf.utm@coords
+ 
+ reddf2 = reddf.utm@data    
+ 
+ # calculate speed and distance with adehabitatLT
+ red.ltraj = as.ltraj(xy=reddf2[,c("east","north")], date=reddf2$Time, 
+                        id=reddf2$Id, infolocs = reddf2[,c("Id","Hpes","east","north")])
+ 
+ red2 = ld(red.ltraj)
+ red2$spd_mps = red2$dist / red2$dt
+ 
+ # identify 'bad' positions (99%ile of step-speeds is ~7.7mps
+ red2$prevspd = lag(red2$dist)/lag(red2$dt)
+
+ red2$badpos <- 0
+  red2$badpos[red2$spd_mps>7.7 & red2$prevspd>7.7] <- 1
+
+ # filter out bad positions    
+ red3 = red2[red2$badpos==0,]
+ 
+ # recalculate speed and distance
+ red3.ltraj = as.ltraj(xy=red3[,c("east","north")], date=red3$date, 
+                        id=red3$Id, infolocs = red3[,c("Id","Hpes","east","north")])
+ 
+ red4 = ld(red3.ltraj)
+ red4$spd_mps = red4$dist / red4$dt
+```
+ 
+ 
+
