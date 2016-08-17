@@ -1,0 +1,104 @@
+---
+title: "Rediscretizing Tracks"
+author: "Anna Steel"
+date: "August 16, 2016"
+output: pdf_document
+---
+```{r, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(maptools)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+library(adehabitatHR)
+#library(userfriendlyscience)
+
+river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
+
+```
+
+
+### Rediscretization of Tracks
+- Using primary and secondary filtered data to rediscretize tracks for further analysis
+- Tracks have been split into bursts where successive positions were seperated by > 50m
+* this threshold can be altered in "Final_Filtering.Rmd" if desired
+- Before redistretizing, remove bursts with < 10 positions (too few to rediscretize in adehabitatLT)
+
+### Good news: the temporal code works. But the spatial code doesn't; I'm pausing this work until I hear back from a few other people
+
+### Errors!!
+I get the same error as FY15, noting that the step length is too small
+Last year I just used the smallest distance that worked, but this year I'd like to be able to have more flexibility to compare results with Aaron Blake, thus would like to be able to use smaller step sizes. 
+- worked back into the built-in function to see where this error came from
+- the R script is just a wrapper for the discretization which is run in C++ (for both space a time)
+- from the outside, I've discovered that the error occurs when the spatial code creates a magic number (the 13th element of the list 'toto') and compares this to the value of n-positions in the selected track * nnew [the user defined ratio of number of interpolated: number of mesaured postions]. eg: if (neff >= (nnew * n)-1 ) then {error}
+- When I increase the user-defined parameter of nnew, the magic number also increases to match (nnew*n)
+- If I move past the error and continue running the R-wrapper, I discover that the later portion of newly rediscretized points are actually simply repetitions of the same location and timestamp, both far out of the range of my testing dataset (burst 36361.3). This repeated time stamp causes an error when the code converts from vectors of data into an ltraj object (as it should). 
+
+I have sent an email to Clement Calenge (author of the package) to see if he can shed light on the situation (Aug 17, 2016). If he doesn't respond or can't help, I can either:
+- use the smallest feasible steplength (see below for more on that puzzle)
+- write my own code (initially sounded feasible but then I realized it will be a challenge to subset "around a bend" ; if a measured step was 12m and I want steps every 5m, I can put two in but the remaining 3m should carry into the next step...possible to code, but one more layer of annoying and time-consuming complexity.)
+- ask Aaron for his code (probably the most logical, but my pride doesn't want to do it). 
+
+
+I begain to search for the smallest feasible step length. The function worked with u=25 (I removed all bursts with <10 position They were not problematic, just sparse tracks. The code broke at u=24. I edited the code with fix(redisltraj) to provide the burst ID where the code ran into an error, then with u=24 I sequentially removed problematic bursts c("36604.1", "36647.1","38792.1","39362.1","39417.1" - it ran. I jumped to u=21, and again squentially removed bursts (from the full set minus sparse bursts), but this time the problematic Ids were different: c("36448.1", "36638.2","39431.1"). I feel like this might tell me something. Also worth noting these bursts with problems all have a high number of positions, so it's not a problem of sparse tracks. 
+
+Here is the code I used up until it broke. [The source code I wrote last year is in the sacbank folder "DataFilter_RediscritizationSpatial_v2.R"]
+```{r}
+  load("Maestros/AllFish_FiltSec4Bursts.RData")  # single object, named red7
+ 
+ dim(red7) # 102633 detections 
+    length(unique(red7$id))  # 430 unique fish
+    length(unique(red7$burst))  # 588 unique bursts
+    
+    ndetects.fish = summarize(group_by(red7, id), ndet = n())  
+      mean(ndetects.fish$ndet) # 238.9 per fish
+      range(ndetects.fish$ndet) # ranges from 28 - 660
+    ndetects.burst = summarize(group_by(red7, burst), ndet = n())  
+      mean(ndetects.burst$ndet) # 174.5 per fish
+      range(ndetects.burst$ndet) # ranges from 3 - 660
+      
+    max(red7$spd_mps, na.rm=T)  # 86.6 mps
+
+  bursts.rem = data.frame(ndetects.burst[ndetects.burst$ndet<10,])
+     nrow(bursts.rem) # 74 bursts removed
+    sum(bursts.rem$ndet) # 373 positions removed
+  red.br =  red7[(red7$burst %in% bursts.rem$burst),] 
+  
+  ggplot(data = red.br, aes(x=east, y=north)) + geom_point() + 
+    geom_path(data = river3, aes(long, lat), col="gold", size=1.2 ) +
+    ggtitle(label = "Positions Removed within Short Bursts") +
+    theme_bw() + coord_fixed()
+    
+  red8 = red7[!(red7$burst %in% bursts.rem$burst),]
+
+  red8.ltraj = as.ltraj(xy=red8[,c("east","north")], date=red8$date, 
+                        id=red8$id, burst = factor(red8$burst),
+                        infolocs=red8[,c("Hpes","east","north")])
+  
+  discr.test = (redisltraj(red8.ltraj, u=5, type="space", nnew=5))
+
+  ##########
+  # BROKEN #
+  ##########
+  
+  #test code:
+  red8 = red7[!(red7$burst %in% c(as.character(bursts.rem$burst),"36604.1", "36647.1","38792.1","39362.1","39417.1")),]
+      # additionally, removed for u=21: "36448.1", "36638.2","39431.1"
+      # additionally, removed for u=24: "36604.1", "36647.1","38792.1","39362.1","39417.1"
+   red8$id = as.factor(as.character(red8$id))
+   red8$burst = as.factor(as.character(red8$burst))
+  red8.ltraj = as.ltraj(xy=red8[,c("east","north")], date=red8$date, 
+                        id=red8$id, burst = red8$burst,
+                        infolocs=red8[,c("Hpes","east","north")])
+  
+  discr.test = (redisltraj(red8.ltraj, u=24, type="space", nnew=5))
+  
+  as.data.frame(ndetects.burst)[1:30,]
+```
