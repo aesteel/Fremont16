@@ -5,84 +5,79 @@ date: "July 11, 2016"
 output: html_document
 ---
 
-#####When I looked at the sample tracks from the KML file, I was not struck by an overwhelming bias in the location of track gaps, as Jon has mentioned. The following exploration was my attempt to visualize the gaps more directly and see where the bias in array performance / post-processing positioning was strongest.
+```{r, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+library(maptools)
+```
 
-#####I extracted  gaps in each track where consective positions were >20, >50, and >100 meters apart (along a linear path). (These thresholds are easily modified to explore other gap-sizes.)
+##### When I looked at the sample tracks from the KML file, I was not struck by an overwhelming bias in the location of track gaps, as Jon has mentioned. The following exploration was my attempt to visualize the gaps more directly and see where the bias in array performance / post-processing positioning was strongest.
+
+##### I extracted  gaps in each track where consective positions were >20, >50, and >100 meters apart (along a linear path). (These thresholds are easily modified to explore other gap-sizes.)
 
 
 ```{r, echo=FALSE, message=FALSE}
- library(dplyr)
- library(ggplot2)
- options(digits.secs=6)
+#  # unfiltered data (as originally run)
+#  load("Maestros/alldf.RData")
+#  dat.all <- alldf
+#  
+#  options(digits.secs=6)
+#   dat.all$Time = as.POSIXct(dat.all$Time, format="%Y-%m-%d %H:%M:%OS")
+#   
+#  dat.all = dat.all[!(dat.all$Id %in% c(36472, 36612)),] # wonky tracks, remove for now
 
-dat.all = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/AllPositions/AllFish.csv")
- dat.all$Time = as.POSIXct(dat.all$Time, format="%Y-%m-%d %H:%M:%OS")
-#  print(paste("Total Fish Tracked =", length(unique(dat.all$Id))))
-#  print(paste("Total Fish Positions =", nrow(dat.all)))
- 
-dat = dat.all[dat.all$Hpes < 2,]
-dat = dat[!(dat$Id %in% c(36472, 36612)),]
+ # primary and seconary filtered data
+ load("Maestros/AllFish_FiltSec1Speed.RData")
+ dat <- red4
 
-# print(paste("Course Filtered: Fish Tracked =", length(unique(dat$Id))))
-#  print(paste("Course Filtered: Fish Positions =", nrow(dat)))
-
-
-datgap = dat %>%
+ datgap = dat %>%
   group_by(Id) %>%
-  mutate(distX_m = c(NA,diff(X)), distY_m = c(NA,diff(Y)))%>%  # dist from prev position
-  mutate(dist_m = sqrt(distX_m^2 + distY_m^2)) %>%
-  mutate(prevX = X - distX_m, prevY = Y - distY_m) %>%
+  mutate(subsE =  east + dx, subsN= north + dy) %>%
   data.frame()
-  
+
 ```
-  
-  
+
 ***
 
-#####In the following plots the Green dots indicate the beginning of a gap in which a fish moves downstream, and red dots indicate the beginning of a gap in which a fish moves upstream. Each point is followed by a line representing the distance of the gap in the track. 
+##### In the following plots the Green dots indicate the beginning of a gap in which a fish moves downstream, and red dots indicate the beginning of a gap in which a fish moves upstream. Each point is followed by a line representing the distance of the gap in the track. 
   
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
-### read in and create river outline
-   library(rgdal)
-   library(maptools)
-   river = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclipWGS84")
-    
-      # read in the river channel and project properly
-       vemco.wgs84 <- CRS("+proj=longlat +datum=WGS84")
-       river2 = readShapeSpatial("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel/2004_channel_freTightclipWGS84.shp", proj4string = vemco.wgs84)
-
-      # reproject to same azimuthal equidistant system (meter-based grid) used for XY fish positions
-        river3 <- spTransform(river2,
-                        CRS=CRS("+proj=aeqd +lat_0=38.759985 +lon_0=-121.666908 +x_0=1000 +y_0=1000 +datum=WGS84"))
-             
-      # convert to be useful in ggplot; still not sure what this actually does       
-        f_river3 <- fortify(river3, region="BYDEL")
-    
+   # read in and create river outline
+   river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
+    f_river3 <- fortify(river3, region="BYDEL")
 
 ### plots ###
-ggplot(data = datgap[datgap$dist_m>20,], aes(x=prevX, y=prevY, colour=dist_m)) + 
+ggplot(data = datgap[datgap$dist>20,], aes(x=east, y=north, colour=dist)) + 
   geom_path(data = f_river3, aes(long, lat), col="gold", size=1.2) + 
-  geom_segment(aes(x=X, xend=prevX, y=Y, yend=prevY), alpha=.5, lineend="round", size=1) + 
-  geom_point(data = datgap[datgap$dist_m>20 & datgap$distX_m<0,], colour="red") + 
-  geom_point(data = datgap[datgap$dist_m>20 & datgap$distX_m>0,], colour="green3") + 
+  geom_segment(aes(x=east, xend=subsE, y=north, yend=subsN), alpha=.5, lineend="round", size=1) + 
+  geom_point(data = datgap[datgap$dist>20 & datgap$dx<0,], colour="red") + 
+  geom_point(data = datgap[datgap$dist>20 & datgap$dx>0,], colour="green3") + 
   coord_fixed(ratio=1) + xlim(river3@bbox[1,1], river3@bbox[1,2]) + ylim(river3@bbox[2,1], river3@bbox[2,2]) + 
-  theme_bw() + labs(x = "X", y="Y", title="All Track Gaps > 20m")
+  theme_bw() + labs(x = "Easting", y="Northing", title="All Track Gaps > 20m")
 
-ggplot(data = datgap[datgap$dist_m>50,], aes(x=prevX, y=prevY, colour=dist_m)) + 
+ggplot(data = datgap[datgap$dist>50,], aes(x=east, y=north, colour=dist)) + 
   geom_path(data = f_river3, aes(long, lat), col="gold", size=1.2) + 
-  geom_segment(aes(x=X, xend=prevX, y=Y, yend=prevY), alpha=.5, lineend="round", size=1) + 
-  geom_point(data = datgap[datgap$dist_m>50 & datgap$distX_m<0,], colour="red") + 
-  geom_point(data = datgap[datgap$dist_m>50 & datgap$distX_m>0,], colour="green3") + 
+  geom_segment(aes(x=east, xend=subsE, y=north, yend=subsN), alpha=.5, lineend="round", size=1) + 
+  geom_point(data = datgap[datgap$dist>50 & datgap$dx<0,], colour="red") + 
+  geom_point(data = datgap[datgap$dist>50 & datgap$dx>0,], colour="green3") + 
   coord_fixed(ratio=1) + xlim(river3@bbox[1,1], river3@bbox[1,2]) + ylim(river3@bbox[2,1], river3@bbox[2,2]) + 
-  theme_bw() + labs(x = "X", y="Y", title="All Track Gaps > 50m")
+  theme_bw() + labs(x = "Easting", y="Northing", title="All Track Gaps > 50m")
  
-ggplot(data = datgap[datgap$dist_m>100,], aes(x=prevX, y=prevY, colour=dist_m)) + 
+ggplot(data = datgap[datgap$dist>100,], aes(x=east, y=north, colour=dist)) + 
   geom_path(data = f_river3, aes(long, lat), col="gold", size=1.2) + 
-  geom_segment(aes(x=X, xend=prevX, y=Y, yend=prevY), alpha=.5, lineend="round", size=1) + 
-  geom_point(data = datgap[datgap$dist_m>100 & datgap$distX_m<0,], colour="red") + 
-  geom_point(data = datgap[datgap$dist_m>100 & datgap$distX_m>0,], colour="green3") + 
+  geom_segment(aes(x=east, xend=subsE, y=north, yend=subsN), alpha=.5, lineend="round", size=1) + 
+  geom_point(data = datgap[datgap$dist>100 & datgap$dx<0,], colour="red") + 
+  geom_point(data = datgap[datgap$dist>100 & datgap$dx>0,], colour="green3") + 
   coord_fixed(ratio=1) + xlim(river3@bbox[1,1], river3@bbox[1,2]) + ylim(river3@bbox[2,1], river3@bbox[2,2]) + 
-  theme_bw() + labs(x = "X", y="Y", title="All Track Gaps > 100m")
+  theme_bw() + labs(x = "Easting", y="Northing", title="All Track Gaps > 100m")
   
  
 ```
@@ -90,26 +85,26 @@ ggplot(data = datgap[datgap$dist_m>100,], aes(x=prevX, y=prevY, colour=dist_m)) 
 
 
 
-##### If we assume, for now, that those gaps which progress upstream are due to poor filtering of erroneous positions, then we can plot only the 'downstream gaps' to reduce clutter in the plots:
+##### If we were to consider those gaps which progress upstream were due to poor filtering of erroneous positions, then we can plot only the 'downstream gaps' to reduce clutter in the plots:
 
 ```{r, echo=FALSE, warning=FALSE}
-ggplot(data = datgap[datgap$dist_m>20 & datgap$distX_m>0,], aes(x=prevX, y=prevY, colour=dist_m)) +     
+ggplot(data = datgap[datgap$dist>20 & datgap$dx>0,], aes(x=east, y=north, colour=dist)) +     
   geom_path(data = f_river3, aes(long, lat), col="gold", size=1.2) + 
-  geom_segment(aes(x=X, xend=prevX, y=Y, yend=prevY), alpha=.5, lineend="round", size=1) + 
+  geom_segment(aes(x=east, xend=subsE, y=north, yend=subsN), alpha=.5, lineend="round", size=1) + 
   geom_point(colour="green3") + 
   coord_fixed(ratio=1) + xlim(river3@bbox[1,1], river3@bbox[1,2]) + ylim(river3@bbox[2,1], river3@bbox[2,2]) + 
-  theme_bw() + labs(x = "X", y="Y", title="All Track Gaps > 20m")
+  theme_bw() + labs(x = "Easting", y="Northing", title="All Track Gaps > 20m")
 
-ggplot(data = datgap[datgap$dist_m>50 & datgap$distX_m>0,], aes(x=prevX, y=prevY, colour=dist_m)) +     
+ggplot(data = datgap[datgap$dist>50 & datgap$dx>0,], aes(x=subsE, y=subsN, colour=dist)) +     
   geom_path(data = f_river3, aes(long, lat), col="gold", size=1.2) + 
-  geom_segment(aes(x=X, xend=prevX, y=Y, yend=prevY), alpha=.5, lineend="round", size=1) + 
+  geom_segment(aes(x=east, xend=subsE, y=north, yend=subsN), alpha=.5, lineend="round", size=1) + 
   geom_point(colour="green3") +
   coord_fixed(ratio=1) + xlim(river3@bbox[1,1], river3@bbox[1,2]) + ylim(river3@bbox[2,1], river3@bbox[2,2]) + 
-  theme_bw() + labs(x = "X", y="Y", title="All Track Gaps > 50m")
+  theme_bw() + labs(x = "Easting", y="Northing", title="All Track Gaps > 50m")
  
-ggplot(data = datgap[datgap$dist_m>100 & datgap$distX_m>0,], aes(x=prevX, y=prevY, colour=dist_m)) + 
+ggplot(data = datgap[datgap$dist>100 & datgap$dx>0,], aes(x=east, y=north, colour=dist)) + 
   geom_path(data = f_river3, aes(long, lat), col="gold", size=1.2) + 
-  geom_segment(aes(x=X, xend=prevX, y=Y, yend=prevY), alpha=.5, lineend="round", size=1) + 
+  geom_segment(aes(x=east, xend=subsE, y=north, yend=subsN), alpha=.5, lineend="round", size=1) + 
   geom_point(colour="green3") + 
   coord_fixed(ratio=1) + xlim(river3@bbox[1,1], river3@bbox[1,2]) + ylim(river3@bbox[2,1], river3@bbox[2,2]) + 
   theme_bw() + labs(x = "X", y="Y", title="All Track Gaps > 100m")
@@ -117,60 +112,52 @@ ggplot(data = datgap[datgap$dist_m>100 & datgap$distX_m>0,], aes(x=prevX, y=prev
 ```
 
 
-####After reviewing the plots, my subjective conclusion is that there is a location just past halfway through the array, in the center-right of the channel, where positioning seems to be less reliable. While I don't think the bias is necessarily due to fish swimming near the outside edge of the array in the channel bend (but please feel free to disagree!), there is a systematic bias. If we are confident in the interpolated data that Aaron can produce, it does seem beneficial to use the improved tracks to provide more consistent spatial coverage. What is Aaron's approach? 
+## Note:
+Originally this was conducted with a simple coarse filter at HPE < 2. The current plots show data that has been more carefully filtered, to only HPE<1 and those positions not resulting in excessive step speeds (not yet removed upstream movements or holding behaviors). 
+
+After reviewing the plots, my subjective conclusion is that there is a location just past halfway through the array, in the center-right of the channel, where positioning seems to be less reliable. While I don't think the bias is necessarily due to fish swimming near the outside edge of the array in the channel bend (but please feel free to disagree!), there is a systematic bias. If we are confident in the interpolated data that Aaron can produce, it does seem beneficial to use the improved tracks to provide more consistent spatial coverage. What is Aaron's approach? 
+
+## Ammendment: 
+I re-ran this code after filtering the data for HPE and speed.
+Now there is indeed signs of clustered gaps in the tracks, which could be related to fish swimming along the edges of the river. These may indeed introduce a bias, but I'll move forward with running my own R scripts with tracks interpolated using adehabitatLT until I hear more from either Jon or Aaron.
 
 ***
 
-## Note:
-#####These data have been coarsely filtered at an HPE of 2.
-#####Additionally, two fish with tracks suggestive of predation (passed through the array but returned 13 days or 12 hours later and passed upstream) were removed. Will be revisited later to complete a more nuanced filteration.
 
-```{r, echo=FALSE}
-uppercuttoff = 500
-hist(dat.all$Hpes, xlim=c(0,uppercuttoff), breaks=1000, ylim=c(0,100), xlab="HPEs", main=paste0("All Fish Positions\n n=",nrow(dat.all)))
-text(400,60, paste0("Additional ",nrow(dat.all[dat.all$Hpes>uppercuttoff,])," positions \nwith HPEs > ",uppercuttoff))
-text(400,40, paste0("Overall, ",round(nrow(dat.all[dat.all$Hpes>50,]) / nrow(dat.all)*100,2),"% of positions > 50 HPEs"))
-text(400,30, paste0("Overall, ",round(nrow(dat.all[dat.all$Hpes>2,]) / nrow(dat.all)*100,1),"% of positions > 2.0 HPEs"))
+### Relationship between Gap Length and Time:
+Previously I plotted the length of the track gaps and the length of time between the same positions, and there were two trends that jumped out of the data; one that was expected (longer gaps took more time) and one that was odd (even long gaps had short time lapsed). After filtering the data, including filtering out positions identified as erronious due to excessive speeds, this second trend has disappeared. That's reassuring!
 
-trash = dat.all[dat.all$Id==36472,]
- trash1 = trash[trash$Time < as.POSIXct("2016-03-01"),]
- trash2 = trash[trash$Time > as.POSIXct("2016-03-01"),]
-plot(trash1$X, trash1$Y, col="green3", type="o", pch=16, ylim=c(900,1300), xlim=c(650,1150), main="TagID 36472 - likely predation event")
-points(trash2$X, trash2$Y, col="red", type="o", pch=17)
-legend("topleft", legend=c("downstream","upstream"), col=c("green3","red"), pch=c(16,17))
+***
 
-tsh = dat.all[dat.all$Id==36612,]
- tsh1 = tsh[tsh$Time < as.POSIXct("2016-02-23 17:00:00"),]
- tsh2 = tsh[tsh$Time > as.POSIXct("2016-02-23 17:00:00"),]
-plot(tsh1$X, tsh1$Y, col="green3", type="o", pch=16, ylim=c(875,1300), xlim=c(650,1150), main="TagID 36612 - likely predation event")
-points(tsh2$X, tsh2$Y, col="red", type="o", pch=17)
-legend("topleft", legend=c("downstream","upstream"), col=c("green3","red"), pch=c(16,17))
-    
+
+This next part of the assessment of the long gaps is done to find suitable distance threshold where the track can be broken to avoid interpolating between distant points.
+
+### Read in data
+```{r, echo=FALSE, message=FALSE}
+ # primary and seconary (speed) filtered data
+ load("Maestros/AllFish_FiltSec1Speed.RData")
 ```
 
+### cut tracks into sub-bursts when gaps are > a selected threshold to avoid interpolating between them
+``` {r, warnings=FALSE}
+dist_threshold = 50        # 50 m
 
+distcut = function(dist) { return (dist > dist_threshold) } 
 
+red4.ltraj = dl(red4)
+red5.ltraj <- cutltraj(red4.ltraj, "distcut(dist)", nextr=TRUE)
 
-## Relationship between Gap Length and Time:
-##### Just because I was curious, here is the plot of the length of the gap (all gaps >20m) and the time between consecutive positions. The result isn't what I'd expected, and deserves a little more thinking...
+red5 = ld(red5.ltraj)
 
-```{r, echo=FALSE, warning=FALSE}
-
-datgap2 = datgap%>%
-  group_by(Id) %>%
-  mutate(timegap_s = c(NA,diff(Time)))%>%
- data.frame()    
-
-datgap3 = datgap2[!is.na(datgap2$timegap_s),]
-
-ggplot(data = datgap3[datgap3$dist_m>20,], aes(x=dist_m, y=timegap_s)) + geom_point(colour="steelblue", alpha=.7, pch=16) + 
-  theme_bw()
-
-ggplot(data = datgap3[datgap3$dist_m>20,], aes(x=dist_m, y=timegap_s)) + geom_point(colour="steelblue", alpha=.7, pch=16) + 
-  theme_bw() + ylim(0,200)
+ # remove the relict values of spd_mps that cross these gaps
+ red5$spd_mps[is.na(red5$dist)] <- NA
+ 
 ```
+### To Complete: find an appropriate metric to assess the suitability of various thresholds for cleaning up the data. 
 
 
 
 __That's all for now!__
 _July 11, 2016_
+_updated Aug 16, 2016_
+

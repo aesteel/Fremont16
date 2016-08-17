@@ -1,0 +1,181 @@
+---
+title: "Exploration Data Filtering Predators"
+author: "Anna Steel"
+date: "August 15, 2016"
+output: html_document
+---
+
+
+```{r, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+library(maptools)
+```
+
+## A subjective assessment of tracks indicates some may include predators
+- high number of detections
+- long passage time
+- exiting the array at the upstream end
+- pass through array then return in future
+```{r}
+ # primary and seconary filtered data
+ load("Maestros/AllFishSecondarySpdFilt.RData")
+```
+
+### High Number of Detections
+- plot shows tracks for fish with the top 5% of recorded positions, colored by hour of day 
+```{r, echo=FALSE, warnings=FALSE}
+
+   # track of top 5% N positions, color coded by hour of day
+   red.npf = red4 %>%
+     group_by(Id) %>%
+     summarize(npos.red= n()) %>%
+     data.frame()
+   
+   highN.red = red.npf[red.npf$npos.red >= quantile(red.npf$npos.red, .95),]
+   ggplot(data=red4[red4$Id %in% highN.red$Id,], aes(x=east, y=north)) +
+     geom_path(aes(colour=as.POSIXlt(date)$hour)) + 
+     facet_wrap(~Id, ncol=5) + scale_colour_gradientn(colours=rainbow(6), name="Hour of Day") + 
+     ggtitle("Highest 5% N positions, positions filtered HPEs<1") + 
+     theme(axis.text.x = element_text(angle = 90, hjust = 1))
+   
+   highn.fish = c(36483, 36379)
+```
+### Most of these tracks with many detections look normal; only 36483 and 36379 attract my attention
+- from tagID 38794 (and 38823) I feel that the excessive speed filter might not be quite tight enough 
+
+
+### Long Passage Time
+- look at time elapsed between first and last positions; look closer at tracks with longest intervals
+```{r, echo=FALSE}
+  # Pull arrival and departure times and locations
+   fl.df = red4 %>%
+      group_by(Id) %>%
+      slice(c(1,n()))
+   fl.df = as.data.frame(fl.df)
+   fl.df$fl = rep(c("F","L"),nrow(fl.df)/2)  
+  
+    ff = fl.df[fl.df$fl=="F",c("Id","date","north","east")] 
+     names(ff) = c("Id","F.time","F.n","F.le")
+    ll = fl.df[fl.df$fl=="L",c("Id","date","north","east")]
+     names(ll) = c("Id","L.time","L.n","L.e")
+  
+   fl.df2 = merge(ff,ll)
+  
+   # calculate passage time through array, and look at long pass times
+   fl.df2$arraytime_min = as.numeric(difftime(fl.df2$L.time, fl.df2$F.time))
+   
+   hist(fl.df2$arraytime_min, breaks=5000, xlim=c(0,300), 
+        main="Passage time for all fish\n primary and secondary filters", xlab="Passage Time (min)")
+    long.fish = fl.df2[fl.df2$arraytime_min > 150,]$Id
+      # 36379 36398 36472 36483 36612 36675
+   print(paste0(length(long.fish)," individual tags with >150 min passage time"))
+   print(paste0("TagIDs ", long.fish))
+
+
+```
+
+### Exits array at upstrem end
+```{r, echo=FALSE}
+  # calculate location of final detection; is it upstream?  
+   hist(fl.df2$L.e, xlab="Longitude (upstream to downstream)", 
+      main="Final detection longitude")
+    
+    upfish = fl.df2[fl.df2$L.e < 615700,]$Id
+      # 36472 
+    
+    print(paste0(length(upfish)," fish exited at upstream end of array"))
+    print(paste0("TagIDs ", upfish))
+```
+### The only fish to exit at the top is also in the category of long passage times (36472)
+
+### Plot the tracks of all fish IDs which raised a red flag
+```{r, echo=FALSE}
+    ggplot(data=red4[red4$Id %in% c(highn.fish,long.fish),], aes(x=east, y=north)) +
+     geom_path(aes(colour=as.POSIXlt(date)$hour)) + 
+     facet_wrap(~Id, ncol=3) + scale_colour_gradientn(colours=rainbow(6), name="Hour of Day") + 
+     ggtitle("Questionable Smolts:\n primary and secondary filtering") + 
+     theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+### cut tracks into sub-bursts when gaps are > a selected time threshold to split by absence from the array
+```{r}
+dt_threshold = 6*3600  # 6 hours
+
+dtcut = function(dt) { return (dt > dt_threshold) } 
+
+red4.ltraj = dl(red4)
+red5.ltraj <- cutltraj(red4.ltraj, "dtcut(dt)", nextr=TRUE)
+
+red5 = ld(red5.ltraj)
+
+    ggplot(data=red5[red5$Id %in% c(highn.fish,long.fish),], aes(x=east, y=north)) +
+     geom_path(aes(colour=burst)) + facet_wrap(~Id, ncol=3) +
+     ggtitle("Questionable Smolts:\n primary and secondary filtering") + 
+     theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+### Remove the later halves of the two split tracks
+- Tag 36612 absent 12.1 hours before returning to array:
+-- last detection of burst 36612.1 @ 2016-02-23 5:50:38; first of burst 36612.2 @ 2016-02-23 17:56:21
+
+- Tag 36472 absent 13.3 Days before returning to array:
+-- last detection of burst 36472.1 @ 2016-02-23 5:50:38; first of burst 36472.2 @ 2016-02-23 17:56:21 
+```{r}
+  red5 = red5[!(red5$burst %in% c(36472.2, 36612.2)),]
+```
+```{r, echo=FALSE}
+  ggplot(data=red5[red5$Id %in% c(highn.fish,long.fish),], aes(x=east, y=north)) +
+   geom_path(aes(colour=burst)) + facet_wrap(~Id, ncol=3) +
+   ggtitle("Questionable Smolts:\n primary and secondary filtering") + 
+   theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+### Is there a predation hotspot here? Or are smolts holding along the bank?
+```{r, echo=FALSE}
+ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
+ f_river3 <- fortify(river3, region="BYDEL")
+
+   full= ggplot(data=red5[red5$Id %in% c(36379,36483,36675),], aes(x=east, y=north)) +
+      geom_path(data = red5[red5$Id==36675,], color="#440154FF") + 
+      geom_path(data = red5[red5$Id==36379,], color="#31688EFF") + 
+      geom_path(data = red5[red5$Id==36483,], color="#35B779FF") + 
+     geom_path(data = f_river3, aes(long, lat), col="grey70", size=1.2) + 
+      ggtitle("Predator Refuge?\n primary and secondary filtering") + coord_fixed() + 
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+      annotate("rect", xmin = 615650, xmax = 615850, ymin = 4290900, ymax = 4291050, alpha=0, color="black")   
+    
+ id379 = red5[red5$Id==36379,]
+  box379 = id379[id379$east>615740 & id379$east<615790 & id379$north>4290950 & id379$north<4290990,]
+  
+ id675 = red5[red5$Id==36675,]
+  box675 = id675[id675$east>615740 & id675$east<615790 & id675$north>4290950 & id675$north<4290990,]
+ id483 = red5[red5$Id==36483,]
+  box483 = id483[id483$east>615740 & id483$east<615790 & id483$north>4290950 & id483$north<4290990,]
+    
+   zoom = ggplot(data=red5[red5$Id %in% c(36379,36483,36675),], aes(x=east, y=north)) +
+      geom_path(data = red5[red5$Id==36675,], color="#440154FF") + 
+      geom_path(data = red5[red5$Id==36379,], color="#31688EFF") + 
+      geom_path(data = red5[red5$Id==36483,], color="#35B779FF") + 
+    geom_path(data = f_river3, aes(long, lat), col="grey70", size=1.2) + 
+      ggtitle("Zoomed") + 
+      xlim(615650, 615850) + ylim(4290900, 4291050) + coord_fixed() + 
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      annotate("rect", xmin = 615740, xmax = 615790, ymin = 4290950, ymax = 4290990,  alpha =0.1, color="black")   +
+        annotate("text",x = 615650, y = 4291050, adj=0, label = paste0("ID36675 - ",nrow(box675)," pos. (",round(nrow(box675)/nrow(id675)*100,1),"% of track)"), color="#440154FF")+
+        annotate("text",x = 615650, y = 4291040, adj=0, label = paste0("ID36379 - ",nrow(box379)," pos. (",round(nrow(box379)/nrow(id379)*100,1),"% of track)"), color="#31688EFF")+
+        annotate("text",x = 615650, y = 4291030, adj=0, label = paste0("ID36483 - ",nrow(box483)," pos. (",round(nrow(box483)/nrow(id483)*100,1),"% of track)"), color="#35B779FF")
+   
+    plot_grid(full, zoom, align="h", nrow=1)  
+
+```
+

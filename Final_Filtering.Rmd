@@ -2,7 +2,7 @@
 title: "Data Filtering Process, Condensed"
 author: "Anna Steel"
 date: "August 12, 2016"
-output: html_document
+output: pdf_document
 ---
 
 ## Filtering of VEMCO post-processed VPS positions
@@ -17,6 +17,7 @@ __metrics considered include number of positions, number of fish in dataset, and
 * filters for likely predators:
 * filters out sparse tracks:
 * breaks apart tracks with large gaps (for subsequent smoothing/rediscretization)
+* Remember: times are reported in UTC from vemco
 
 ```{r, include=FALSE} 
 # required packages
@@ -28,19 +29,39 @@ library(ggplot2)
 library(grid) 
 library(cowplot)
 library(viridis)
+library(adehabitatLT)
 ```
 
 ### Read in Data & Clean for proper dates and TagIDs
 - Open script from Fremont16.Rproj in GitHub to ensure directories are correct
-``` {r, echo=FALSE}
+- add UTM coordinates
+- filter out tags in the 65xxx series
+- filter any tags detected outside of period of complete array (none this year)
+- tabulate total fish, total positions, and total positions per fish
+``` {r}
  load("Maestros/alldf.RData")
  options("digits.secs"=6)
  alldf$Time <- as.POSIXct(as.character(alldf$Time), format="%Y-%m-%d %H:%M:%OS", tz = "GMT")
 
+ # remove fish tags in the 65xxx series (5 tags)
+ alldf <- alldf[alldf$Id<65000,]  # matches VEMCO 
+ 
  # incomplete array
  alldfg <- alldf[alldf$Time > as.POSIXct("2016-02-109 14:00:00", tz="GMT"),]
   print(paste0(nrow(alldf) - nrow(alldfg)," positions removed due to incomplete VPS array"))
  
+ # convert the Lat Long into UTMs using 'sp'
+  alldf.sp <- SpatialPointsDataFrame(coords = alldf[,c("Longitude","Latitude")], 
+              data = alldf, 
+              proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+        # confirmed string with VEMCO; the XY coords in azimuthal equal area
+  options(digits=10)
+  alldf.utm <- spTransform(alldf.sp, 
+                          CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+  alldf.utm@data[,c("east","north")] <- alldf.utm@coords
+  
+  alldf.utm = alldf.utm@data   
+  
  # N fish & total N positions
  print(paste0("Prior to filtering, ",nrow(alldf)," total positions in dataset"))
  print(paste0("Prior to filtering, ",length(unique(alldf$Id))," individual fish positioned"))
@@ -55,9 +76,9 @@ library(viridis)
   summary(all.npf$npos.all)
 ```
 
-### HPE filter: <1.0 HPEs
+### Primary HPE filter: <1.0 HPEs
 After filtering @ HPEs < 1, dataset retained:
-```{r, echo=FALSE}
+```{r}
  reddf = alldfg[alldfg$Hpes < 1,]
   
   # N fish & total N positions
@@ -90,45 +111,111 @@ After filtering @ HPEs < 1, dataset retained:
 
 ### Excessive Speeds Filtering
 ```{r}
+  load("Maestros/AllFishPrimaryFilt.RData") # object called 'reddf'
 
-# Critical to order this properly for the ordered step analysis below (TypeI)
-reddf = reddf[order(reddf$Id, reddf$Time),]  
+  # Critical to order this properly for the ordered step analysis below (TypeI)
+  reddf = reddf[order(reddf$Id, reddf$Time),]  
   reddf$IDcol = 1:nrow(reddf)
 
-# # convert the Lat Long into UTMs using 'sp'
- reddf.sp <- SpatialPointsDataFrame(coords = reddf[,c("Longitude","Latitude")], 
+  # convert the Lat Long into UTMs using 'sp'
+  reddf.sp <- SpatialPointsDataFrame(coords = reddf[,c("Longitude","Latitude")], 
               data = reddf, 
               proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
         # confirmed string with VEMCO; the XY coords in azimuthal equal area
- reddf.utm <- spTransform(reddf.sp, 
+  options(digits=10)
+  reddf.utm <- spTransform(reddf.sp, 
                           CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
- reddf.utm@data[,c("east","north")] <- reddf.utm@coords
+  reddf.utm@data[,c("east","north")] <- reddf.utm@coords
  
- reddf2 = reddf.utm@data    
+  reddf2 = reddf.utm@data    
  
- # calculate speed and distance with adehabitatLT
- red.ltraj = as.ltraj(xy=reddf2[,c("east","north")], date=reddf2$Time, 
+  # calculate speed and distance with adehabitatLT
+  red.ltraj = as.ltraj(xy=reddf2[,c("east","north")], date=reddf2$Time, 
                         id=reddf2$Id, infolocs = reddf2[,c("Id","Hpes","east","north")])
  
- red2 = ld(red.ltraj)
- red2$spd_mps = red2$dist / red2$dt
+  red2 = ld(red.ltraj)
+  red2$spd_mps = red2$dist / red2$dt
  
- # identify 'bad' positions (99%ile of step-speeds is ~7.7mps
- red2$prevspd = lag(red2$dist)/lag(red2$dt)
+  # identify 'bad' positions (99%ile of step-speeds is ~7.7mps
+  red2$prevspd = lag(red2$dist)/lag(red2$dt)
 
- red2$badpos <- 0
-  red2$badpos[red2$spd_mps>7.7 & red2$prevspd>7.7] <- 1
+  red2$badpos <- 0
+   red2$badpos[red2$spd_mps>7.7 & red2$prevspd>7.7] <- 1
 
- # filter out bad positions    
- red3 = red2[red2$badpos==0,]
+  # filter out bad positions    
+  red3 = red2[red2$badpos==0,]
  
- # recalculate speed and distance
- red3.ltraj = as.ltraj(xy=red3[,c("east","north")], date=red3$date, 
+  # recalculate speed and distance
+  red3.ltraj = as.ltraj(xy=red3[,c("east","north")], date=red3$date, 
                         id=red3$Id, infolocs = red3[,c("Id","Hpes","east","north")])
  
- red4 = ld(red3.ltraj)
- red4$spd_mps = red4$dist / red4$dt
+  red4 = ld(red3.ltraj)
+  red4$spd_mps = red4$dist / red4$dt
+  
+  save(red4, file="Maestros/AllFish_FiltSec1Speed.RData")
 ```
  
+
+### Departed from and returned again to array
+- Remove select bursts for fish returning to array after some time absent
+```{r}  
+dt_threshold = 6*3600  # 6 hours
+
+dtcut = function(dt) { return (dt > dt_threshold) } 
+
+red4.ltraj = dl(red4)
+red5.ltraj <- cutltraj(red4.ltraj, "dtcut(dt)", nextr=TRUE)
+
+red5 = ld(red5.ltraj)
+
+red5 = red5[!(red5$burst %in% c(36472.3, 36472.4, 36612.2, 36612.3)),]
+
+save(red5, file="Maestros/AllFish_FiltSec2Pred.RData")
+```
+
+### Suspect holding behavior
+__Should revisit this - these might be milling smolts, but might also be a predator__
+- see "Exploration_DataFilteringPreds" for more on these three tracks
+```{r}
+red6 = red5[!(red5$Id %in% c(36379,36483,36675)),]
+save(red6, file="Maestros/AllFish_FiltSec3Hold.RData")
+```
+
+### Cut tracks into sub-bursts when gaps are > a selected threshold to avoid interpolating between them
+- for now I'll use 50m until I make more time to get into this deeper. 
+- see final few chunks in "Exploration_TrackGapBias" for more details on how to select this threshold.
+``` {r, warnings=FALSE}
+dist_threshold = 50
+gapcut = function(dist) { return (dist > dist_threshold) } 
+
+red6.ltraj = as.ltraj(xy=red6[,c("east","north")], date = red6$date, id = red6$Id, infolocs=red6[,c("Hpes","east","north")])
+red7.ltraj <- cutltraj(red6.ltraj, "gapcut(dist)", nextr=TRUE)
+
+red7 = ld(red7.ltraj)
+  red7$spd_mps = red7$dist / red7$dt
+  
+save(red7, file="Maestros/AllFish_FiltSec4Bursts.RData")
+```
  
+### Plot of pre- & post-filtering positions 
+```{r, echo=FALSE}
+ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
+  f_river3 <- fortify(river3, region="BYDEL")
+
+pre.plot <- ggplot(data = alldf.utm[alldf.utm$Hpes<50,], aes(x=east, y=north, colour=Hpes)) + geom_point(alpha=0.2) + 
+  scale_color_gradientn(colors=viridis(5)) +  ggtitle("Pre-Filtering") +
+  geom_path(data = river3, aes(long, lat), col="gold", size=1.2 )+
+  xlim(river3@bbox[1,1]+50, river3@bbox[1,2]) + ylim(river3@bbox[2,1], river3@bbox[2,2]) +
+  coord_fixed()
+
+post.plot <- ggplot(data = red7, aes(x=east, y=north, colour=Hpes)) + geom_point(alpha=0.2) + 
+  scale_color_gradientn(colors=viridis(5)) + ggtitle("Post-Filtering") +
+  geom_path(data = river3, aes(long, lat), col="gold", size=1.2 )+
+  xlim(river3@bbox[1,1]+50, river3@bbox[1,2]) + ylim(river3@bbox[2,1], river3@bbox[2,2]) +
+  coord_fixed()
+
+par(mar=c(5.1,4.1,4.1,3.1))
+plot_grid(pre.plot, post.plot, nrow=2)
+
+```
 
