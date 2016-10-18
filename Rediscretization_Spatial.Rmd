@@ -30,26 +30,6 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
 * this threshold can be altered in "Final_Filtering.Rmd" if desired
 - Before redistretizing, remove bursts with < 10 positions (too few to rediscretize in adehabitatLT)
 
-### Good news: the temporal code works. But the spatial code doesn't; I'm pausing this work until I hear back from a few other people
-
-### Errors!!
-I get the same error as FY15, noting that the step length is too small
-Last year I just used the smallest distance that worked, but this year I'd like to be able to have more flexibility to compare results with Aaron Blake, thus would like to be able to use smaller step sizes. 
-- worked back into the built-in function to see where this error came from
-- the R script is just a wrapper for the discretization which is run in C++ (for both space a time)
-- from the outside, I've discovered that the error occurs when the spatial code creates a magic number (the 13th element of the list 'toto') and compares this to the value of n-positions in the selected track * nnew [the user defined ratio of number of interpolated: number of mesaured postions]. eg: if (neff >= (nnew * n)-1 ) then {error}
-- When I increase the user-defined parameter of nnew, the magic number also increases to match (nnew*n)
-- If I move past the error and continue running the R-wrapper, I discover that the later portion of newly rediscretized points are actually simply repetitions of the same location and timestamp, both far out of the range of my testing dataset (burst 36361.3). This repeated time stamp causes an error when the code converts from vectors of data into an ltraj object (as it should). 
-
-I have sent an email to Clement Calenge (author of the package) to see if he can shed light on the situation (Aug 17, 2016). If he doesn't respond or can't help, I can either:
-- use the smallest feasible steplength (see below for more on that puzzle)
-- write my own code (initially sounded feasible but then I realized it will be a challenge to subset "around a bend" ; if a measured step was 12m and I want steps every 5m, I can put two in but the remaining 3m should carry into the next step...possible to code, but one more layer of annoying and time-consuming complexity.)
-- ask Aaron for his code (probably the most logical, but my pride doesn't want to do it). 
-
-
-I begain to search for the smallest feasible step length. The function worked with u=25 (I removed all bursts with <10 position They were not problematic, just sparse tracks. The code broke at u=24. I edited the code with fix(redisltraj) to provide the burst ID where the code ran into an error, then with u=24 I sequentially removed problematic bursts c("36604.1", "36647.1","38792.1","39362.1","39417.1" - it ran. I jumped to u=21, and again squentially removed bursts (from the full set minus sparse bursts), but this time the problematic Ids were different: c("36448.1", "36638.2","39431.1"). I feel like this might tell me something. Also worth noting these bursts with problems all have a high number of positions, so it's not a problem of sparse tracks. 
-
-Here is the code I used up until it broke. [The source code I wrote last year is in the sacbank folder "DataFilter_RediscritizationSpatial_v2.R"]
 ```{r}
   load("Maestros/AllFish_FiltSec4Bursts.RData")  # single object, named red7
  
@@ -65,7 +45,9 @@ Here is the code I used up until it broke. [The source code I wrote last year is
       range(ndetects.burst$ndet) # ranges from 3 - 660
       
     max(red7$spd_mps, na.rm=T)  # 86.6 mps
+```
 
+```{r}
   bursts.rem = data.frame(ndetects.burst[ndetects.burst$ndet<10,])
      nrow(bursts.rem) # 74 bursts removed
     sum(bursts.rem$ndet) # 373 positions removed
@@ -77,28 +59,66 @@ Here is the code I used up until it broke. [The source code I wrote last year is
     theme_bw() + coord_fixed()
     
   red8 = red7[!(red7$burst %in% bursts.rem$burst),]
-
+  
+  dim(red8) # 10796 detections after discretization
+    length(unique(red8.ssrdz$id))  # 439
+    ndetects.discr = summarize(group_by(red8.ssrdz, id), ndet = n())  
+      mean(ndetects.discr$ndet) # 28.75 per fish
+      range(ndetects.discr$ndet) # ranges from 10 - 41
+    max(red8.ssrdz$spd_mps, na.rm=T)  # 73.11 mps
+  # prep object for redisltraj()
   red8.ltraj = as.ltraj(xy=red8[,c("east","north")], date=red8$date, 
                         id=red8$id, burst = factor(red8$burst),
                         infolocs=red8[,c("Hpes","east","north")])
-  
-  discr.test = (redisltraj(red8.ltraj, u=5, type="space", nnew=5))
-
-  ##########
-  # BROKEN #
-  ##########
-  
-  #test code:
-  red8 = red7[!(red7$burst %in% c(as.character(bursts.rem$burst),"36604.1", "36647.1","38792.1","39362.1","39417.1")),]
-      # additionally, removed for u=21: "36448.1", "36638.2","39431.1"
-      # additionally, removed for u=24: "36604.1", "36647.1","38792.1","39362.1","39417.1"
-   red8$id = as.factor(as.character(red8$id))
-   red8$burst = as.factor(as.character(red8$burst))
-  red8.ltraj = as.ltraj(xy=red8[,c("east","north")], date=red8$date, 
-                        id=red8$id, burst = red8$burst,
-                        infolocs=red8[,c("Hpes","east","north")])
-  
-  discr.test = (redisltraj(red8.ltraj, u=24, type="space", nnew=5))
-  
-  as.data.frame(ndetects.burst)[1:30,]
 ```
+
+```{r}
+  # discretize in space
+  redlt.ssrdz = (redisltraj(red8.ltraj, u=25, type="space", nnew=5)) 
+    # u=25 is the smallest distance where the code will work.
+
+  # convert back to dataframe
+   red8.ssrdz = ld(redlt.ssrdz)
+     red8.ssrdz=red8.ssrdz[order(red8.ssrdz$id,red8.ssrdz$date),]
+```
+
+
+Recalculated migration speed between positions now that they have been rediscretized.
+
+Also will add extra information back into dataframe to possibly use later, but need to wait until I've sorted that info from Jon's hard-drive
+
+Save the discretized object to RData
+
+Note: In 2015 I removed tracks which had < 10 positions after spatial discretization. However, this year's anaysis is slightly different since I'm working with bursts  ->  we should have already controlled for sparse tracks (i.e., those where interpolation might be inapporpriate). Plus, above I've removed any burst with < 10 positions. Therefore, I'm imposing no additional filtering after discretization. 
+
+```{r, echo=FALSE}
+ # recalculate migration speed  
+   red8.ssrdz$spd_mps = red8.ssrdz$dist / red8.ssrdz$dt
+
+#  # add in extra info when I get it from Jon
+#    tagrel = read.csv("DATA/Maestro_tagging_WRC-LFC.csv")
+#       tagrel = tagrel[,c("ID.Tag","Species","Time.Date.Release","RelEv","Weight","Fork.Length")] # time in PST
+#       names(tagrel) = c("id","run","datetime.Rel","RelEv","Weight","FL")
+#        
+#       library(plyr)
+#        red8.ssrdz = join(red8.ssrdz, tagrel, type="left")
+#       detach(package:plyr)
+#   
+#       red8.ssrdz$RelHr = as.POSIXlt(red8.ssrdz$datetime.Rel, format="%m/%d/%Y %H:%M")$hour
+#       red8.ssrdz$datetime.Rel = NULL
+
+  ## write this to file
+  saveRDS(red8.ssrdz, "Maestros/RediscSpat_25m.RData")
+```
+
+
+
+And finally, output the general metrics about the remaining dataset
+```{r}
+    dim(red8.ssrdz) # 10796 detections after discretization
+    length(unique(red8.ssrdz$id))  # 439
+    ndetects.discr = summarize(group_by(red8.ssrdz, id), ndet = n())  
+      mean(ndetects.discr$ndet) # 28.75 per fish
+      range(ndetects.discr$ndet) # ranges from 10 - 41
+    max(red8.ssrdz$spd_mps, na.rm=T)  # 73.11 mps
+    ```
