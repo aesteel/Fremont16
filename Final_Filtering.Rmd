@@ -5,19 +5,20 @@ date: "August 12, 2016"
 output: pdf_document
 ---
 
-## Filtering of VEMCO post-processed VPS positions
+# Filtering of VEMCO post-processed VPS positions
 
-This code runs from the datafiles provided by VEMCO, and builds final datasets for analysis
-Also includes reference numbers to track how filtering affects the dataset
+This code runs from the datafiles provided by VEMCO, and builds final datasets for analysis.
+It also periodcally outputs descriptive values (e.g.: N fish) to track how filtering alters the dataset.
 
-__metrics considered include number of positions, number of fish in dataset, and positions per fish__
+__The descriptive metrics produced include number of positions, number of fish, and positions per fish__
 
-* filters by HPE: see 'Exploration_DataFiltering' for details
-* filters by speed:
-* filters for likely predators:
-* filters out sparse tracks:
-* breaks apart tracks with large gaps (for subsequent smoothing/rediscretization)
-* Remember: times are reported in UTC from vemco
+The filtering includes the following stages, with more details in the scripts noted.
+* filters by HPE: see 'Exploration_DataFiltPrimary' for details
+* filters by speed: see 'Exploration_DataFiltSec1Speed' for details
+* filters for likely predators: see 'Exploration_DataFiltSec2Preds' for details
+* splits tracks with large gaps (for subsequent smoothing/rediscretization): see 'Exploration_TrackGapBias' for details
+
+Remember: times are reported in UTC from vemco
 
 ```{r, include=FALSE} 
 # required packages
@@ -32,12 +33,12 @@ library(viridis)
 library(adehabitatLT)
 ```
 
-### Read in Data & Clean for proper dates and TagIDs
+## Read in Data & Clean for proper dates and TagIDs
 - Open script from Fremont16.Rproj in GitHub to ensure directories are correct
-- add UTM coordinates
-- filter out tags in the 65xxx series
-- filter any tags detected outside of period of complete array (none this year)
-- tabulate total fish, total positions, and total positions per fish
+- Filter out tags in the 65xxx series
+- Filter any tags detected outside of period of complete array (none this year)
+- Add UTM coordinates
+- Tabulate total fish, total positions, and total positions per fish
 ``` {r}
  load("Maestros/alldf.RData")
  options("digits.secs"=6)
@@ -61,7 +62,8 @@ library(adehabitatLT)
   alldf.utm@data[,c("east","north")] <- alldf.utm@coords
   
   alldf.utm = alldf.utm@data   
-  
+```
+```{r, echo=FALSE}
  # N fish & total N positions
  print(paste0("Prior to filtering, ",nrow(alldf)," total positions in dataset"))
  print(paste0("Prior to filtering, ",length(unique(alldf$Id))," individual fish positioned"))
@@ -76,16 +78,15 @@ library(adehabitatLT)
   summary(all.npf$npos.all)
 ```
 
-### Primary HPE filter: <1.0 HPEs
-After filtering @ HPEs < 1, dataset retained:
-```{r}
+## Primary HPE filter: <1.0 HPEs
+```{r echo=FALSE}
  reddf = alldfg[alldfg$Hpes < 1,]
   
   # N fish & total N positions
-   print(paste0(nrow(reddf)," positions")) # 110,211  
-    print(paste0("   ",round(nrow(reddf)/nrow(alldfg)*100,2), "% of fish tag positions"))  # 84.35%
-   print(paste0(length(unique(reddf$Id))," individual fish"))  # 438
-    print(paste0("   ",round((length(unique(reddf$Id))/length(unique(alldf$Id)))*100,1),"% of individual fish retained "))  # 438
+   print(paste0(nrow(reddf)," positions")) 
+    print(paste0("   ",round(nrow(reddf)/nrow(alldfg)*100,2), "% of fish tag positions"))  
+   print(paste0(length(unique(reddf$Id))," individual fish"))  
+    print(paste0("   ",round((length(unique(reddf$Id))/length(unique(alldf$Id)))*100,1),"% of individual fish retained "))
    
    
   # N pos per fish after HPE filtering
@@ -99,7 +100,7 @@ After filtering @ HPEs < 1, dataset retained:
 
 ```
 
-#### Write out HPE filtered dataset
+
 ```{r}
   save(reddf, file="Maestros/AllFishPrimaryFilt.RData")
 ```
@@ -107,10 +108,12 @@ After filtering @ HPEs < 1, dataset retained:
 
 ***
 
-## Beginning of Secondary Filtering Process
+# Beginning of Secondary Filtering Process
 
-### Excessive Speeds Filtering
-```{r}
+## Excessive Speeds Filtering
+- Use primary filtered dataset created above
+- Use adehabitatLT to calculate distance and speed between consecutive positions
+```{r, echo=FALSE}
   load("Maestros/AllFishPrimaryFilt.RData") # object called 'reddf'
 
   # Critical to order this properly for the ordered step analysis below (TypeI)
@@ -135,7 +138,10 @@ After filtering @ HPEs < 1, dataset retained:
  
   red2 = ld(red.ltraj)
   red2$spd_mps = red2$dist / red2$dt
- 
+```
+- Idenitfy consecutive positions resulting in excessive speeds (top 1%, 7.7mps)  --- *consider other justfication for 'excessive' speed threshold?*
+- Position only considered 'bad' if both the step to and the step from the position have excessive speeds. 
+```{r}
   # identify 'bad' positions (99%ile of step-speeds is ~7.7mps
   red2$prevspd = lag(red2$dist)/lag(red2$dt)
 
@@ -154,10 +160,28 @@ After filtering @ HPEs < 1, dataset retained:
   
   save(red4, file="Maestros/AllFish_FiltSec1Speed.RData")
 ```
- 
+```{r, echo=FALSE}
+  # N fish & total N positions
+   print(paste0(nrow(red4)," positions")) 
+    print(paste0("   ",round(nrow(red4)/nrow(alldfg)*100,2), "% of fish tag positions"))  
+   print(paste0(length(unique(red4$Id))," individual fish"))  
+    print(paste0("   ",round((length(unique(red4$Id))/length(unique(alldf$Id)))*100,1),"% of individual fish retained "))
+   
+   
+  # N pos per fish after HPE filtering
+  red4.npf = red4 %>%
+   group_by(Id) %>%
+   summarize(npos.red4= n()) %>%
+   data.frame()
+  
+  print("Summary of N positions per fish, after filtering excessive speeds")
+  summary(red4.npf$npos.red4)   
 
-### Departed from and returned again to array
-- Remove select bursts for fish returning to array after some time absent
+```
+
+## Remove fish which departed from and returned again to array
+- Remove select bursts for fish returning to array after some time absent (here use 6 hrs)
+- Identified fish track segments to remove manually in external code
 ```{r}  
 dt_threshold = 6*3600  # 6 hours
 
@@ -172,19 +196,56 @@ red5 = red5[!(red5$burst %in% c(36472.3, 36472.4, 36612.2, 36612.3)),]
 
 save(red5, file="Maestros/AllFish_FiltSec2Pred.RData")
 ```
+```{r, echo=F}
+  # N fish & total N positions
+   print(paste0(nrow(red5)," positions")) 
+    print(paste0("   ",round(nrow(red5)/nrow(alldfg)*100,2), "% of fish tag positions"))  
+   print(paste0(length(unique(red5$Id))," individual fish"))  
+    print(paste0("   ",round((length(unique(red5$Id))/length(unique(alldf$Id)))*100,1),"% of individual fish retained "))
+   
+   
+  # N pos per fish after HPE filtering
+  red5.npf = red5 %>%
+   group_by(Id) %>%
+   summarize(npos.red5= n()) %>%
+   data.frame()
+  
+  print("Summary of N positions per fish, after filtering return trips to array")
+  summary(red5.npf$npos.red5)   
 
-### Suspect holding behavior
+```
+
+## Remove fish demonstrating suspicious holding behavior
+- See "Exploration_DataFilteringPreds" for more on these three tracks.
 __Should revisit this - these might be milling smolts, but might also be a predator__
-- see "Exploration_DataFilteringPreds" for more on these three tracks
 ```{r}
 red6 = red5[!(red5$Id %in% c(36379,36483,36675)),]
 save(red6, file="Maestros/AllFish_FiltSec3Hold.RData")
 ```
+```{r, echo=FALSE}
+  # N fish & total N positions
+   print(paste0(nrow(red6)," positions")) 
+    print(paste0("   ",round(nrow(red6)/nrow(alldfg)*100,2), "% of fish tag positions"))  
+   print(paste0(length(unique(red6$Id))," individual fish"))  
+    print(paste0("   ",round((length(unique(red6$Id))/length(unique(alldf$Id)))*100,1),"% of individual fish retained "))
+   
+   
+  # N pos per fish after HPE filtering
+  red6.npf = red6 %>%
+   group_by(Id) %>%
+   summarize(npos.red6= n()) %>%
+   data.frame()
+  
+  print("Summary of N positions per fish, after filtering fish with suspicious holding behaviors")
+  summary(red6.npf$npos.red6)   
 
-### Cut tracks into sub-bursts when gaps are > a selected threshold to avoid interpolating between them
-- for now I'll use 50m until I make more time to get into this deeper. 
-- see final few chunks in "Exploration_TrackGapBias" for more details on how to select this threshold.
-``` {r, warnings=FALSE}
+```
+
+## Cut tracks into sub-bursts when gaps are > a selected threshold to avoid interpolating over long distances
+- For now I've used 50m gaps until I make time to evaluate this more deeply.
+- This results in a few sub-bursts that retain <4 positions; these are automatically dropped by adehabitatLT (a total of 103 positions)
+- Reference bac to final few code chunks in "Exploration_TrackGapBias" for more details on how to select this threshold.
+``` {r, warning=FALSE}
 dist_threshold = 50
 gapcut = function(dist) { return (dist > dist_threshold) } 
 
@@ -197,8 +258,8 @@ red7 = ld(red7.ltraj)
 save(red7, file="Maestros/AllFish_FiltSec4Bursts.RData")
 ```
  
-### Plot of pre- & post-filtering positions 
-```{r, echo=FALSE}
+## Plot of pre- & post-filtering positions 
+```{r, echo=FALSE, warning=FALSE, fig.height=8, fig.width=10}
  river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
   f_river3 <- fortify(river3, region="BYDEL")
 

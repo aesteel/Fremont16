@@ -53,6 +53,16 @@ library(maptools)
    # read in and create river outline
    river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
     f_river3 <- fortify(river3, region="BYDEL")
+    
+   # read in receiver locations
+    options(digits=20)
+    recloc = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/CalibratedStationPositions.csv")
+    recloc = SpatialPointsDataFrame(coords = recloc[,c("Lon","Lat")], 
+              data = recloc, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+    recloc.utm <- spTransform(recloc, CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+     recloc.utm$E = coordinates(recloc.utm)[,1]
+     recloc.utm$N = coordinates(recloc.utm)[,2]
+
 
 ### plots ###
 ggplot(data = datgap[datgap$dist>20,], aes(x=east, y=north, colour=dist)) + 
@@ -98,7 +108,8 @@ ggplot(data = datgap[datgap$dist>20 & datgap$dx>0,], aes(x=east, y=north, colour
 ggplot(data = datgap[datgap$dist>50 & datgap$dx>0,], aes(x=subsE, y=subsN, colour=dist)) +     
   geom_path(data = f_river3, aes(long, lat), col="gold", size=1.2) + 
   geom_segment(aes(x=east, xend=subsE, y=north, yend=subsN), alpha=.5, lineend="round", size=1) + 
-  geom_point(colour="green3") +
+  #geom_point(colour="green3") +
+  geom_point(data=data.frame(recloc.utm), aes(x=E, y=N), colour="red") +
   coord_fixed(ratio=1) + xlim(river3@bbox[1,1], river3@bbox[1,2]) + ylim(river3@bbox[2,1], river3@bbox[2,2]) + 
   theme_bw() + labs(x = "Easting", y="Northing", title="All Track Gaps > 50m")
  

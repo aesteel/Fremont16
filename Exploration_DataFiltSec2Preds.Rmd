@@ -27,7 +27,7 @@ library(maptools)
 - pass through array then return in future
 ```{r}
  # primary and seconary filtered data
- load("Maestros/AllFishSecondarySpdFilt.RData")
+ load("Maestros/AllFish_FiltSec1Speed.RData")
 ```
 
 ### High Number of Detections
