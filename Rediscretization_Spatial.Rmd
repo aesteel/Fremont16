@@ -94,6 +94,8 @@ Note: In 2015 I removed tracks which had < 10 positions after spatial discretiza
 ```{r, echo=FALSE}
  # recalculate migration speed  
    red8.ssrdz$spd_mps = red8.ssrdz$dist / red8.ssrdz$dt
+     
+  ##### Do I need to recalculate the turning angles and everything else still? #####   
 
 #  # add in extra info when I get it from Jon
 #    tagrel = read.csv("DATA/Maestro_tagging_WRC-LFC.csv")
