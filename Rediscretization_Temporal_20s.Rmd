@@ -1,0 +1,107 @@
+---
+title: "Rediscretization_Temporal"
+author: "Anna Steel"
+date: "September 6, 2016"
+output: pdf_document
+---
+```{r, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(maptools)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+library(adehabitatHR)
+#library(userfriendlyscience)
+
+river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
+
+```
+
+
+## Rediscretization of Tracks - 20 seconds between positions
+- Using primary and secondary filtered data to rediscretize tracks for further analysis
+- Tracks have been split into bursts where successive positions were seperated by > 50m
+* this threshold can be altered in "Final_Filtering.Rmd" if desired
+- Before redistretizing, remove bursts with < 10 positions (too few to rediscretize in adehabitatLT)
+- also note that the interval of 20 seconds was selected to be consistent with the 2015 analysis; another script will discretize at 2 seconds to be more consitent with ELAM outputs and USGS analysis
+```{ r, echo=FALSE }
+  options(digits=20) #keep 
+  load("Maestros/AllFish_FiltSec4Bursts.RData")  # single object, named red7
+ 
+ dim(red7) # 102633 detections 
+    length(unique(red7$id))  # 430 unique fish
+    length(unique(red7$burst))  # 588 unique bursts
+    
+    ndetects.fish = summarize(group_by(red7, id), ndet = n())  
+      mean(ndetects.fish$ndet) # 238.9 per fish
+      range(ndetects.fish$ndet) # ranges from 28 - 660
+    ndetects.burst = summarize(group_by(red7, burst), ndet = n())  
+      mean(ndetects.burst$ndet) # 174.5 per fish
+      range(ndetects.burst$ndet) # ranges from 3 - 660
+      
+    max(red7$spd_mps, na.rm=T)  # 86.6 mps
+```
+
+```{r}
+  bursts.rem = data.frame(ndetects.burst[ndetects.burst$ndet<10,])
+     nrow(bursts.rem) # 74 bursts removed
+    sum(bursts.rem$ndet) # 373 positions removed
+  red.br =  red7[(red7$burst %in% bursts.rem$burst),] 
+  
+  ggplot(data = red.br, aes(x=east, y=north)) + geom_point() + 
+    geom_path(data = river3, aes(long, lat), col="gold", size=1.2 ) +
+    ggtitle(label = "Positions Removed within Short Bursts") +
+    theme_bw() + coord_fixed()
+    
+  red8 = red7[!(red7$burst %in% bursts.rem$burst),]
+
+  red8.ltraj = as.ltraj(xy=red8[,c("east","north")], date=red8$date, 
+                        id=red8$id, burst = factor(red8$burst),
+                        infolocs=red8[,c("Hpes","east","north")])
+```
+
+## Discretize in Time
+```{r}
+  # discretize in time
+  red8.trdz = ld(redisltraj(red8.ltraj, u=20, type="time", nnew=50))
+   red8.trdz$run = "LFC" # creates a common grouping variable to make UD with all points
+   red8.trdz=red8.trdz[order(red8.trdz$id,red8.trdz$date),]
+   
+ # recalculate migration speed  
+   red8.trdz$spd_mps = red8.trdz$dist / red8.trdz$dt
+```
+```{r, echo=FALSE}
+
+#  # add in extra info when I get it from Jon
+#    tagrel = read.csv("DATA/Maestro_tagging_WRC-LFC.csv")
+#       tagrel = tagrel[,c("ID.Tag","Species","Time.Date.Release","RelEv","Weight","Fork.Length")] # time in PST
+#       names(tagrel) = c("id","run","datetime.Rel","RelEv","Weight","FL")
+#        
+#       library(plyr)
+#        red8.trdz = join(red8.trdz, tagrel, type="left")
+#       detach(package:plyr)
+#   
+#       red8.trdz$RelHr = as.POSIXlt(red8.trdz$datetime.Rel, format="%m/%d/%Y %H:%M")$hour
+#       red8.trdz$datetime.Rel = NULL
+
+  ## write this to file
+  saveRDS(red8.trdz, "Maestros/RediscTime_20s.RData")
+```
+
+
+
+And finally, output the general metrics about the remaining dataset
+```{r}
+    dim(red8.trdz) # 17004 detections after discretization
+    length(unique(red8.trdz$id))  # 430
+    ndetects.discr = summarize(group_by(red8.trdz, id), ndet = n())  
+      mean(ndetects.discr$ndet) # 39.54 per fish
+      range(ndetects.discr$ndet) # ranges from 5 - 551
+    max(red8.trdz$spd_mps, na.rm=T)  # 2.36 mps
+    ```
