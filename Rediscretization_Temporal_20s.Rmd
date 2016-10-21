@@ -17,6 +17,7 @@ library(cowplot)
 library(viridis)
 library(adehabitatLT)
 library(adehabitatHR)
+library(stringr)
 #library(userfriendlyscience)
 
 river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
@@ -30,7 +31,8 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
 * this threshold can be altered in "Final_Filtering.Rmd" if desired
 - Before redistretizing, remove bursts with < 10 positions (too few to rediscretize in adehabitatLT)
 - also note that the interval of 20 seconds was selected to be consistent with the 2015 analysis; another script will discretize at 2 seconds to be more consitent with ELAM outputs and USGS analysis
-```{ r, echo=FALSE }
+
+```{r, echo=FALSE}
   options(digits=20) #keep 
   load("Maestros/AllFish_FiltSec4Bursts.RData")  # single object, named red7
  
@@ -47,7 +49,6 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
       
     max(red7$spd_mps, na.rm=T)  # 86.6 mps
 ```
-
 ```{r}
   bursts.rem = data.frame(ndetects.burst[ndetects.burst$ndet<10,])
      nrow(bursts.rem) # 74 bursts removed
@@ -76,19 +77,41 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
  # recalculate migration speed  
    red8.trdz$spd_mps = red8.trdz$dist / red8.trdz$dt
 ```
-```{r, echo=FALSE}
 
-#  # add in extra info when I get it from Jon
-#    tagrel = read.csv("DATA/Maestro_tagging_WRC-LFC.csv")
-#       tagrel = tagrel[,c("ID.Tag","Species","Time.Date.Release","RelEv","Weight","Fork.Length")] # time in PST
-#       names(tagrel) = c("id","run","datetime.Rel","RelEv","Weight","FL")
-#        
-#       library(plyr)
-#        red8.trdz = join(red8.trdz, tagrel, type="left")
-#       detach(package:plyr)
-#   
-#       red8.trdz$RelHr = as.POSIXlt(red8.trdz$datetime.Rel, format="%m/%d/%Y %H:%M")$hour
-#       red8.trdz$datetime.Rel = NULL
+```{r, echo=FALSE}
+ # SacRiver Stage - pulled from CDEC - ask for QAQC data from DWR if this seems okay 
+  frestg = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/FRE_stage_2016study.csv")
+  frestg = frestg[!is.na(frestg$stage_ft),]
+  frestg = frestg[frestg$stage_ft > 5 ,] # some missing values are recorded as 2 or 5; remove these entirely
+   frestg$timePST = str_pad(frestg$timePST, 4, pad = "0")
+   frestg$datetimePST = as.POSIXct(paste(frestg$datePST, frestg$timePST), format="%Y%m%d %H%M", tz="Etc/GMT-8")
+   frestg$datetimeUTC = as.POSIXct(as.character(frestg$datetimePST + (60*60*8)), tz="GMT")
+   frestg = frestg[order(frestg$datetimePST),]
+   frestg$stageid = rownames(frestg)
+  
+ ## merge onto position dataset
+   red8.trdz = red8.trdz[order(red8.trdz$date),]
+
+    # magic step! thanks stack exchange!
+  red8.trdz$cdecStgIndex <- 
+     findInterval( red8.trdz$date, c(-Inf, head(frestg$datetimeUTC,-1))+ c(0,diff(as.numeric(frestg$datetimeUTC))/2 )) 
+
+  red8.trdz = merge( red8.trdz, frestg[,c("stage_ft", "datetimeUTC","stageid")], by.y="stageid", by.x="cdecStgIndex", all.x=T)
+  
+  red8.trdz = red8.trdz[order(red8.trdz$date),]
+
+  
+  # Fish Releases
+    fishrel = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/TagReleaseList.csv", colClasses=c("RelTime"="character"))
+        fishrel$datetime = as.POSIXct(paste(fishrel$RelDate, fishrel$RelTime), format="%Y-%m-%d %H%M")
+        names(fishrel)[3] <- "id"
+        names(fishrel)[ncol(fishrel)] <- "datetime.Rel"
+        
+   red8.trdz = merge(red8.trdz, fishrel[,c("RelEv","CanID","id","RelLoc","datetime.Rel")], all.x=T)
+
+  red8.trdz$RelHr = as.POSIXlt(red8.trdz$datetime.Rel)$hour
+
+  red8.trdz$cdecStgIndex = NULL
 
   ## write this to file
   saveRDS(red8.trdz, "Maestros/RediscTime_20s.RData")
