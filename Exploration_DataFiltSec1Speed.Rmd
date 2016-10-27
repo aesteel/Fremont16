@@ -2,7 +2,7 @@
 title: "Exploration for Data Filtering Speed"
 author: "Anna Steel"
 date: "August 12, 2016"
-output: html_document
+output: pdf_document
 ---
 
 ```{r, include=FALSE} 
@@ -21,7 +21,7 @@ library(adehabitatLT)
 ### Load and prepare dataset 
 - add UTM coordinates
 ```{r}
-load("Maestros/AllFishPrimaryFilt.RData")
+ reddf <- readRDS("Maestros/AllFishPrimaryFilt.RData")
 
 # Critical to order this properly for the ordered step analysis below (TypeI)
 reddf = reddf[order(reddf$Id, reddf$Time),]  
@@ -57,9 +57,9 @@ reddf.utm <- spTransform(reddf.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units=m
 ```
 ```{r, echo=FALSE}
        print(paste0("Primary data filtering: mean speed over ground (all posisions) = ", round(mean(red2$spd_mps, na.rm=T),2), "(SD=", round(sd(red2$spd_mps, na.rm=T),2), ") meters per second"))
-       print(paste0("Primary data filtering: mean speed over ground (mean of fish means) = ", round(mean(meanspds$mean_mps, na.rm=T),2), "(SD=", round(sd(meanspds$sd_mps, na.rm=T),2), ") meters per second"))
+       print(paste0("Primary data filtering: mean speed over ground (mean of fish means) = ", round(mean(meanspds2$mean_mps, na.rm=T),2), "(SD=", round(sd(meanspds2$sd_mps, na.rm=T),2), ") meters per second"))
        
-       boxplot(meanspds$mean_mps, ylab="mean track speed over ground", main="Mean Speed over Ground per Fish\n Primary Data Filtering")
+       boxplot(meanspds2$mean_mps, ylab="mean track speed over ground", main="Mean Speed over Ground per Fish\n Primary Data Filtering")
     
 ```
 
@@ -67,11 +67,13 @@ reddf.utm <- spTransform(reddf.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units=m
 The concept that some points with low HPEs values are still erronious positions.
 If the speed over ground is excessive in both the prior (i-1) and subsequent (i) steps, it is likely that the position (i) has extordinarily high error and should be removed. 
 
-We will begin by considering any points as erronious with speeds greater than 10.6 (99.5% quantile) in both the prior and subsequent steps, then reassess the tracks to see if we need to set a lower cutoff
+We will begin by considering any points as erronious with speeds greater than 7.7 (99% quantile) in both the prior and subsequent steps, then reassess the tracks to see if we need to set a lower cutoff
 ```{r, echo=FALSE}
-hist(red2$spd_mps, xlim=c(0,50), breaks=200, ylim=c(0,2000), xlab="Speed over Ground", main="Speed over Ground, Between Consecutive Points\nPrimary Data Filtering")
+hist(red2$spd_mps, xlim=c(0,50), breaks=200, ylim=c(0,4000), xlab="Speed over Ground", main="Speed over Ground, Between Consecutive Points\nPrimary Data Filtering")
  abline(v=quantile(red2$spd_mps, .995, na.rm=T), col="red", lty=2)
+ #abline(v=quantile(red2$spd_mps, .99, na.rm=T), col="blue", lty=2)
 ```
+
 ```{r}
   red2$prevspd = lag(red2$dist)/lag(red2$dt)
  
@@ -91,18 +93,12 @@ hist(red2$spd_mps, xlim=c(0,50), breaks=200, ylim=c(0,2000), xlab="Speed over Gr
            col="grey70", cex=.6)
       text(615500, 4291200, paste0("TagID: \n",eg.badptID[i]))
       points(x=egid$east, y=egid$north, type="l",col="grey30")
-        
       egid.f2 =egid[egid$badpos!=1,] 
         points(x=egid.f2$east, y=egid.f2$north, type="l", pch=16, col="steelblue")
-        
-      points(x=egid[egid$badpos==1,]$east, y=egid[egid$badpos==1,]$north, col="red", cex=2, lwd=2)
+        points(x=egid[egid$badpos==1,]$east, y=egid[egid$badpos==1,]$north, col="red", cex=2, lwd=2)
     }
 ```
 ```{r, include=FALSE}
-   # from above: good filtering - 36652, 38792, 38789
-   #             bad filtering - 38794, 38921
-   #             not problematic - 38785, 39394, 38833
-   
    # to see how many positions were removed per fish:
    badperfish = (table(red2$Id, red2$badpos))
     table(badperfish[,2])
@@ -117,7 +113,7 @@ hist(red2$spd_mps, xlim=c(0,50), breaks=200, ylim=c(0,2000), xlab="Speed over Gr
    red3 = red2[red2$badpos==0,]
 ```
 ```{r, echo=FALSE}
-   print(paste0("Excessive speed filter removed ", nrow(red2)-nrow(red3)," positions, or ", round((nrow(red2)-nrow(red3)) / nrow(red2),3),"% of recorded positions"))
+   print(paste0("Excessive-speed filter removed ", nrow(red2)-nrow(red3)," positions, or ", round((nrow(red2)-nrow(red3)) / nrow(red2),3),"% of recorded positions"))
 ```
     
 ### Recalculate movement speeds without these erronious positions
@@ -133,8 +129,8 @@ hist(red2$spd_mps, xlim=c(0,50), breaks=200, ylim=c(0,2000), xlab="Speed over Gr
    meanspds4 = data.frame(summarize(group_by(red4, Id), mean_mps=mean(spd_mps, na.rm=T), sd_mps=sd(spd_mps, na.rm=T)))
 ```
 ```{r, echo=FALSE}
-       print(paste0("Excessive Speed Filtering: mean speed over ground (all posisions) = ", round(mean(red4$spd_mps, na.rm=T),2), "(SD=", round(sd(red4$spd_mps, na.rm=T),2), ") meters per second"))
-       print(paste0("Excessive Speed Filtering: mean speed over ground (mean of fish means) = ", round(mean(meanspds4$mean_mps, na.rm=T),2), "(SD=", round(sd(meanspds4$sd_mps, na.rm=T),2), ") meters per second"))
+       print(paste0("Excessive-Speed Filtering: mean speed over ground (all posisions) = ", round(mean(red4$spd_mps, na.rm=T),2), "(SD=", round(sd(red4$spd_mps, na.rm=T),2), ") meters per second"))
+       print(paste0("Excessive-Speed Filtering: mean speed over ground (mean of fish means) = ", round(mean(meanspds4$mean_mps, na.rm=T),2), "(SD=", round(sd(meanspds4$sd_mps, na.rm=T),2), ") meters per second"))
        
        par(mfrow=c(1,1), mar=c(5.1,4.1,4.1,2.1))
        boxplot(meanspds4$mean_mps, ylab="mean track speed over ground", main="Mean Speed over Ground per Fish\n Excessive Speed Filtering")

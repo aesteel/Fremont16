@@ -40,7 +40,7 @@ library(adehabitatLT)
 - Add UTM coordinates
 - Tabulate total fish, total positions, and total positions per fish
 ``` {r}
- load("Maestros/alldf.RData")
+ alldf <- readRDS("Maestros/AllPos1to5.RData")
  options("digits.secs"=6)
  alldf$Time <- as.POSIXct(as.character(alldf$Time), format="%Y-%m-%d %H:%M:%OS", tz = "GMT")
 
@@ -78,9 +78,9 @@ library(adehabitatLT)
   summary(all.npf$npos.all)
 ```
 
-## Primary HPE filter: <1.0 HPEs
+## Primary HPE filter: <0.5 HPEs
 ```{r echo=FALSE}
- reddf = alldfg[alldfg$Hpes < 1,]
+ reddf = alldfg[alldfg$Hpes < 0.5,]
   
   # N fish & total N positions
    print(paste0(nrow(reddf)," positions")) 
@@ -95,14 +95,14 @@ library(adehabitatLT)
    summarize(npos.red= n()) %>%
    data.frame()
   
-  print("Summary of N positions per fish, after filtering at HPE<1")
+  print("Summary of N positions per fish, after filtering at HPE<0.5")
   summary(red.npf$npos.red)   
 
 ```
 
 
 ```{r}
-  save(reddf, file="Maestros/AllFishPrimaryFilt.RData")
+  saveRDS(reddf, file="Maestros/AllFishPrimaryFilt.RData")
 ```
 ## End of Primary Filtering Process
 
@@ -114,7 +114,7 @@ library(adehabitatLT)
 - Use primary filtered dataset created above
 - Use adehabitatLT to calculate distance and speed between consecutive positions
 ```{r, echo=FALSE}
-  load("Maestros/AllFishPrimaryFilt.RData") # object called 'reddf'
+  reddf <- readRDS("Maestros/AllFishPrimaryFilt.RData") # object called 'reddf'
 
   # Critical to order this properly for the ordered step analysis below (TypeI)
   reddf = reddf[order(reddf$Id, reddf$Time),]  
@@ -158,7 +158,7 @@ library(adehabitatLT)
   red4 = ld(red3.ltraj)
   red4$spd_mps = red4$dist / red4$dt
   
-  save(red4, file="Maestros/AllFish_FiltSec1Speed.RData")
+  saveRDS(red4, file="Maestros/AllFish_FiltSec1Speed.RData")
 ```
 ```{r, echo=FALSE}
   # N fish & total N positions
@@ -192,9 +192,9 @@ red5.ltraj <- cutltraj(red4.ltraj, "dtcut(dt)", nextr=TRUE)
 
 red5 = ld(red5.ltraj)
 
-red5 = red5[!(red5$burst %in% c(36472.3, 36472.4, 36612.2, 36612.3)),]
+red5 = red5[!(red5$burst %in% c(36472.2, 36612.2, 38902.2)),]
 
-save(red5, file="Maestros/AllFish_FiltSec2Pred.RData")
+ saveRDS(red5, file="Maestros/AllFish_FiltSec2Pred.RData")
 ```
 ```{r, echo=F}
   # N fish & total N positions
@@ -217,10 +217,10 @@ save(red5, file="Maestros/AllFish_FiltSec2Pred.RData")
 
 ## Remove fish demonstrating suspicious holding behavior
 - See "Exploration_DataFilteringPreds" for more on these three tracks.
-__Should revisit this - these might be milling smolts, but might also be a predator__
+- Spoke with Paul Stumpner (USGS) and he confirmed that the velocities in this area are too high for small smolts to hold and mill like this; indicative of a predator.
 ```{r}
 red6 = red5[!(red5$Id %in% c(36379,36483,36675)),]
-save(red6, file="Maestros/AllFish_FiltSec3Hold.RData")
+saveRDS(red6, file="Maestros/AllFish_FiltSec3Hold.RData")
 ```
 ```{r, echo=FALSE}
   # N fish & total N positions
@@ -255,7 +255,7 @@ red7.ltraj <- cutltraj(red6.ltraj, "gapcut(dist)", nextr=TRUE)
 red7 = ld(red7.ltraj)
   red7$spd_mps = red7$dist / red7$dt
   
-save(red7, file="Maestros/AllFish_FiltSec4Bursts.RData")
+saveRDS(red7, file="Maestros/AllFish_FiltSec4Bursts.RData")
 ```
  
 ## Plot of pre- & post-filtering positions 

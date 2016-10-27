@@ -2,7 +2,7 @@
 title: "Exploration Data Filtering Predators"
 author: "Anna Steel"
 date: "August 15, 2016"
-output: html_document
+output: pdf_document
 ---
 
 
@@ -27,11 +27,11 @@ library(maptools)
 - pass through array then return in future
 ```{r}
  # primary and seconary filtered data
- load("Maestros/AllFish_FiltSec1Speed.RData")
+ red4 <- readRDS("Maestros/AllFish_FiltSec1Speed.RData")
 ```
 
 ### High Number of Detections
-- plot shows tracks for fish with the top 5% of recorded positions, colored by hour of day 
+- plot shows tracks for fish with the top 10% of recorded positions, colored by hour of day 
 ```{r, echo=FALSE, warnings=FALSE}
 
    # track of top 5% N positions, color coded by hour of day
@@ -40,17 +40,18 @@ library(maptools)
      summarize(npos.red= n()) %>%
      data.frame()
    
-   highN.red = red.npf[red.npf$npos.red >= quantile(red.npf$npos.red, .95),]
+   highN.red = red.npf[red.npf$npos.red >= quantile(red.npf$npos.red, .90),]
    ggplot(data=red4[red4$Id %in% highN.red$Id,], aes(x=east, y=north)) +
      geom_path(aes(colour=as.POSIXlt(date)$hour)) + 
      facet_wrap(~Id, ncol=5) + scale_colour_gradientn(colours=rainbow(6), name="Hour of Day") + 
-     ggtitle("Highest 5% N positions, positions filtered HPEs<1") + 
+     ggtitle("Highest 5% N positions, positions filtered HPEs<0.5") + 
      theme(axis.text.x = element_text(angle = 90, hjust = 1))
    
-   highn.fish = c(36483, 36379)
+   # strange looking tracks
+   highn.fish = c(36379, 36483, 36612, 36632, 36675)
 ```
-### Most of these tracks with many detections look normal; only 36483 and 36379 attract my attention
-- from tagID 38794 (and 38823) I feel that the excessive speed filter might not be quite tight enough 
+### Most of these tracks with many detections look normal; only 36379, 36483, 36612, 36632, 36675 attract my attention
+- from tagID 38794 and 38823 (both noted from first two releases, last three not examined) I feel that the excessive speed filter might not be quite tight enough? 
 
 
 ### Long Passage Time
@@ -90,10 +91,10 @@ library(maptools)
       main="Final detection longitude")
     
     upfish = fl.df2[fl.df2$L.e < 615700,]$Id
-      # 36472 
+      # 36472, 38988
     
     print(paste0(length(upfish)," fish exited at upstream end of array"))
-    print(paste0("TagIDs ", upfish))
+    print(paste0("TagID ", upfish))
 ```
 ### The only fish to exit at the top is also in the category of long passage times (36472)
 
@@ -108,7 +109,7 @@ library(maptools)
 
 ### cut tracks into sub-bursts when gaps are > a selected time threshold to split by absence from the array
 ```{r}
-dt_threshold = 6*3600  # 6 hours
+dt_threshold = 6*3600  # 6 hours; not biologically meaningful
 
 dtcut = function(dt) { return (dt > dt_threshold) } 
 
@@ -124,13 +125,18 @@ red5 = ld(red5.ltraj)
 ```
 
 ### Remove the later halves of the two split tracks
+- Tag 36472 absent 13.3 days before returning to array:
+-- last detection of burst 36472.1 @ 2016-02-23 5:50:38; first of burst 36472.2 @ 2016-02-23 17:56:21 
+
 - Tag 36612 absent 12.1 hours before returning to array:
 -- last detection of burst 36612.1 @ 2016-02-23 5:50:38; first of burst 36612.2 @ 2016-02-23 17:56:21
 
-- Tag 36472 absent 13.3 Days before returning to array:
--- last detection of burst 36472.1 @ 2016-02-23 5:50:38; first of burst 36472.2 @ 2016-02-23 17:56:21 
+- Tag 38902 absent 2.8 days before returning to array:
+-- last detection of burst 38902.1 @ 2016-03-07 19:42:22; first of burst 38902.2 @ 2016-03-10 15:55:52 
+
+- Tag 36483 not split b/c considered a predator and removed entirely. 
 ```{r}
-  red5 = red5[!(red5$burst %in% c(36472.2, 36612.2)),]
+  red5 = red5[!(red5$burst %in% c(36472.2, 36612.2, 38902.2)),]
 ```
 ```{r, echo=FALSE}
   ggplot(data=red5[red5$Id %in% c(highn.fish,long.fish),], aes(x=east, y=north)) +
@@ -146,26 +152,27 @@ red5 = ld(red5.ltraj)
  f_river3 <- fortify(river3, region="BYDEL")
 
    full= ggplot(data=red5[red5$Id %in% c(36379,36483,36675),], aes(x=east, y=north)) +
-      geom_path(data = red5[red5$Id==36675,], color="#440154FF") + 
-      geom_path(data = red5[red5$Id==36379,], color="#31688EFF") + 
-      geom_path(data = red5[red5$Id==36483,], color="#35B779FF") + 
+      geom_path(data = red5[red5$burst==36675.1,], color="#440154FF") + 
+      geom_path(data = red5[red5$burst==36379.1,], color="#31688EFF") + 
+      geom_path(data = red5[red5$burst==36483.4,], color="#35B779FF") + 
      geom_path(data = f_river3, aes(long, lat), col="grey70", size=1.2) + 
       ggtitle("Predator Refuge?\n primary and secondary filtering") + coord_fixed() + 
       theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
       annotate("rect", xmin = 615650, xmax = 615850, ymin = 4290900, ymax = 4291050, alpha=0, color="black")   
     
- id379 = red5[red5$Id==36379,]
+ id379 = red5[red5$burst==36379.1,]
   box379 = id379[id379$east>615740 & id379$east<615790 & id379$north>4290950 & id379$north<4290990,]
-  
- id675 = red5[red5$Id==36675,]
+ id675 = red5[red5$burst==36675.1,]
   box675 = id675[id675$east>615740 & id675$east<615790 & id675$north>4290950 & id675$north<4290990,]
- id483 = red5[red5$Id==36483,]
+ id483 = red5[red5$burst==36483.4,]
   box483 = id483[id483$east>615740 & id483$east<615790 & id483$north>4290950 & id483$north<4290990,]
+ id902 = red5[red5$burst==38902.2,]
+  box902 = id902[id902$east>615740 & id902$east<615790 & id902$north>4290950 & id902$north<4290990,]
     
    zoom = ggplot(data=red5[red5$Id %in% c(36379,36483,36675),], aes(x=east, y=north)) +
-      geom_path(data = red5[red5$Id==36675,], color="#440154FF") + 
-      geom_path(data = red5[red5$Id==36379,], color="#31688EFF") + 
-      geom_path(data = red5[red5$Id==36483,], color="#35B779FF") + 
+      geom_path(data = red5[red5$burst==36675.1,], color="#440154FF") + 
+      geom_path(data = red5[red5$burst==36379.1,], color="#31688EFF") + 
+      geom_path(data = red5[red5$burst==36483.4,], color="#35B779FF") + 
     geom_path(data = f_river3, aes(long, lat), col="grey70", size=1.2) + 
       ggtitle("Zoomed") + 
       xlim(615650, 615850) + ylim(4290900, 4291050) + coord_fixed() + 
@@ -179,3 +186,7 @@ red5 = ld(red5.ltraj)
 
 ```
 
+## Remove the three likely predators identified holding within the array
+```{r}
+    red5 = red5[!(red5$Id %in% c(36379, 36483, 36675)),]  
+```    
