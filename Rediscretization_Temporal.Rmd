@@ -1,0 +1,80 @@
+---
+title: "Rediscretization_Temporal"
+author: "Anna Steel"
+date: "September 6, 2016"
+output: pdf_document
+---
+```{r, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(maptools)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+library(adehabitatHR)
+#library(userfriendlyscience)
+
+river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
+
+```
+
+
+## Rediscretization of Tracks - 2 seconds between positions
+- Using primary and secondary filtered data to rediscretize tracks for further analysis
+- Tracks have been split into bursts where successive positions were seperated by > 50m
+* this threshold can be altered in "Final_Filtering.Rmd" if desired
+- Before redistretizing, remove bursts with < 10 positions (too few to rediscretize in adehabitatLT)
+```{r, echo=FALSE}
+  options(digits=20) #keep 
+  load("Maestros/AllFish_FiltSec4Bursts.RData")  # single object, named red7
+ 
+ dim(red7) # 102633 detections 
+    length(unique(red7$id))  # 430 unique fish
+    length(unique(red7$burst))  # 588 unique bursts
+    
+    ndetects.fish = summarize(group_by(red7, id), ndet = n())  
+      mean(ndetects.fish$ndet) # 238.9 per fish
+      range(ndetects.fish$ndet) # ranges from 28 - 660
+    ndetects.burst = summarize(group_by(red7, burst), ndet = n())  
+      mean(ndetects.burst$ndet) # 174.5 per fish
+      range(ndetects.burst$ndet) # ranges from 3 - 660
+      
+    max(red7$spd_mps, na.rm=T)  # 86.6 mps
+```
+```{r}
+  bursts.rem = data.frame(ndetects.burst[ndetects.burst$ndet<10,])
+     nrow(bursts.rem) # 74 bursts removed
+    sum(bursts.rem$ndet) # 373 positions removed
+  red.br =  red7[(red7$burst %in% bursts.rem$burst),] 
+  
+  ggplot(data = red.br, aes(x=east, y=north)) + geom_point() + 
+    geom_path(data = river3, aes(long, lat), col="gold", size=1.2 ) +
+    ggtitle(label = "Positions Removed within Short Bursts") +
+    theme_bw() + coord_fixed()
+    
+  red8 = red7[!(red7$burst %in% bursts.rem$burst),]
+
+  red8.ltraj = as.ltraj(xy=red8[,c("east","north")], date=red8$date, 
+                        id=red8$id, burst = factor(red8$burst),
+                        infolocs=red8[,c("Hpes","east","north","run")])
+  
+  red8.trdz = ld(redisltraj(red8.ltraj, u=2, type="time", nnew=50))
+   red8.trdz$run = "LFC" # creates a common grouping variable to make UD with all points
+```
+
+## Create kernel UD from track
+```{r}
+
+   red8.grp = data.frame(grp=red8.trdz[,"run"])
+     xytsp = (red8.trdz[,c("x","y")])
+     coordinates(red8.grp) <- xytsp 
+     proj4string(red8.grp) <- CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
+
+  
+  kud16 = kernelUD(red8.grp[,1], h="LSCV", extent=0.1) 
+
