@@ -1,0 +1,110 @@
+---
+title: "Kernel UDs 2016"
+author: "Anna Steel"
+date: "October 19, 2016"
+output: pdf_document
+---
+
+```{r, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(maptools)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+library(adehabitatHR)
+#library(userfriendlyscience)
+
+river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
+
+```
+# Kernel Utilization Distributions
+### This script uses the temporally rediscretized dataset (currently only 20 sec steps) to create utilization distributions. Here I compare the 2016 data with the 2015 data for LFC - I excluded the WRC for coding simplicity, not scientific reasons. Utiltimately I plan to also consider variability in flow and fish size, but have not yet incorporated those additional variables. 
+
+__________________
+
+## Create kernel UD from tracks
+The fish positions are only those from the first two phases - includes 430 individuals. 
+
+To improve comparisons between 2015 and 2016 I constrained the 2016 UD to use the same grid as 2015. 
+
+The kernelUD() function in adehabitatLT gives options for how to select a smoothing parameter for the bivariate normal probability space defined at each recorded fish position. In 2015 I used the least squares cross validation to select an appropriate value for h (smoothing parameter) - the algorithm looks for a value of the smoothing parameter (h) where the CV(h) is minimized. In 2015 the value selected for h for LFC was 3.03. However, for the 2016 dataset the trend of change in CV(h) with h is monotonically increasing, thus the value used for h is the smallest one considered, or 2.48. 
+
+Other options for specifying h include using the ad hoc method of smoother selection, which is h = Sigma*n^(1/6), or using the same value for h that was selected for the 2015 dataset. 
+```{r, echo=FALSE}
+  # read in RData object from 2015
+      kud15 <- readRDS("Maestros/kud15_final.RData")
+        vud15 = getvolumeUD(kud15)
+      # windows(width=4, height=4)
+      #  image(vud15[[1]], col=heat.colors(12), main=names(vud16)[1])
+        xyz.15 <- as.image.SpatialGridDataFrame(vud15[[1]])
+      #   contour(xyz.2, add=TRUE, nlevels=6, drawlabels=FALSE)
+      print(paste("h-lscv-2015LFC = ",round(kud15$LFC@h$h,3)))
+      
+  # save grid to reference for 2016 UD
+    grid15 = SpatialPixels(SpatialPoints(kud15[[1]]@grid ))
+      
+  # create kud/vud for 2016
+    red8.trdz = readRDS("Maestros/RediscTime_20s.RData")
+
+    red8.grp = data.frame(grp=red8.trdz[,"run"])
+     xytsp = (red8.trdz[,c("x","y")])
+     coordinates(red8.grp) <- xytsp 
+     proj4string(red8.grp) <- CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
+```
+
+```{r}
+   #kud16.lscv = kernelUD(red8.grp[,1], h="LSCV", kern="bivnorm", extent=0.1, grid=grid15)  # computationally intensive
+    kud16.lscv = readRDS("Maestros/kud16_lscv.RData") 
+     print(paste0("h-lscv = ",round(kud16.lscv$LFC@h$h,3)))
+
+   # windows()
+       plotLSCV(kud16.lscv)
+       
+    kud16.href = kernelUD(red8.grp[,1], h="href", kern="bivnorm", extent=0.1, grid=grid15)    
+     print(paste0("h-href = ",round(kud16.href$LFC@h$h,3)))
+   kud16.h15 = kernelUD(red8.grp[,1], h=3.03, kern="bivnorm", extent=0.1, grid=grid15) 
+```
+
+```{r, echo=FALSE, fig.width=7, fig.height=10}        
+     vud16.lscv <- getvolumeUD(kud16.lscv)
+     vud16.href <- getvolumeUD(kud16.href)
+     vud16.h15 <- getvolumeUD(kud16.h15) 
+
+#  windows(width=10, height=3); 
+      par(mfrow=c(3,1))
+     image(vud16.lscv[[1]], col=heat.colors(12), main="LSCV")
+     xyz.lscv <- as.image.SpatialGridDataFrame(vud16.lscv[[1]])
+      contour(xyz.lscv, add=TRUE, nlevels=6, drawlabels=FALSE)  
+     image(vud16.href[[1]], col=heat.colors(12), main="HREF")
+     xyz.href <- as.image.SpatialGridDataFrame(vud16.href[[1]])
+      contour(xyz.href, add=TRUE, nlevels=6, drawlabels=FALSE)  
+     image(vud16.h15[[1]], col=heat.colors(12), main="h=3.03 (2015)")
+     xyz.h15 <- as.image.SpatialGridDataFrame(vud16.h15[[1]])
+      contour(xyz.h15, add=TRUE, nlevels=6, drawlabels=FALSE)  
+      
+  vud16 = vud16.h15 
+   xyz.16 <- as.image.SpatialGridDataFrame(vud16[[1]])
+  
+```
+
+ 
+ 
+## Compare 2016 UD with 2015 UD (for 2015-LFC)
+```{r, echo=FALSE, fig.height=10, fig.width=4}
+  # plot contours overlapping    
+    #windows(width=10, height=3); 
+   par(mfrow=c(3,1))
+     contour(xyz.15, add=FALSE, nlevels=5, levels=25, drawlabels=FALSE, lwd=2.5, col="red", main="25% contour")
+     contour(xyz.16, add=TRUE, nlevels=5, levels=25, drawlabels=FALSE, lwd=2.5, col="steelblue2")
+     legend("topleft", legend=c("2015","2016"), fill=c("red","steelblue2"))
+     contour(xyz.15, add=FALSE, nlevels=5, levels=50, drawlabels=FALSE, lwd=2.5,col="red", main="50% contour")
+     contour(xyz.16, add=TRUE, nlevels=5, levels=50, drawlabels=FALSE, lwd=2.5,col="steelblue2")
+     contour(xyz.15, add=FALSE, nlevels=5, levels=75, drawlabels=FALSE, lwd=2.5,col="red", main="75% contour")
+     contour(xyz.16, add=TRUE, nlevels=5, levels=75, drawlabels=FALSE, lwd=2.5,col="steelblue2")
+```

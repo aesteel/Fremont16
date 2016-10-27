@@ -1,0 +1,14 @@
+NOTES: Oct 24, 2016
+
+According to a kmz file, the release location was at tisdale weir.
+This location is ~2.2rkm downstream of the CFTC receiver location "SR_AbvTisdale",
+ (as of Aug 2012) which was identified as rkm 287.5.
+Therefore, the est rkm for the release site is 285.3.
+
+The upstream end of the array is located ~2.0 rkm downstream of the CFTC receiver
+ location "SR_RM85-1" (38.7654, -121.69054; Robert Abbott, as of Aug 2012)
+ which was identified as rkm 232.2. 
+Therefore, the est rkm for the top of the receiver array is 230.2 rkm. 
+
+This is based on the file "CTFCMonitors_08292012_Rkm.xlsx" and the google 
+ earth kmz files compiled for YBUS.
