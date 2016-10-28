@@ -99,6 +99,7 @@ library(maptools)
 ### The only fish to exit at the top is also in the category of long passage times (36472)
 
 ### Plot the tracks of all fish IDs which raised a red flag
+- later found fish ID 36376 which swam upstream for 100m then turned and progressed rapidly out of array. Questionable, but not caught by any filters; came to my attention b/c was the slowest fish through the array (70 min). Leaving it in the dataset for now. 
 ```{r, echo=FALSE}
     ggplot(data=red4[red4$Id %in% c(highn.fish,long.fish),], aes(x=east, y=north)) +
      geom_path(aes(colour=as.POSIXlt(date)$hour)) + 
