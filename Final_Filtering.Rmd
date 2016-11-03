@@ -39,6 +39,7 @@ library(adehabitatLT)
 - Filter any tags detected outside of period of complete array (none this year)
 - Add UTM coordinates
 - Tabulate total fish, total positions, and total positions per fish
+- Tabulate same metrics for releases 1&2 and 3-5 seperately, b/c of differences in flow during those periods, and because they were processed seperately by VEMCO (even though I'll lump them here for filtering and analysis)
 ``` {r}
  alldf <- readRDS("Maestros/AllPos1to5.RData")
  options("digits.secs"=6)
@@ -47,9 +48,9 @@ library(adehabitatLT)
  # remove fish tags in the 65xxx series (5 tags)
  alldf <- alldf[alldf$Id<65000,]  # matches VEMCO 
  
- # incomplete array
- alldfg <- alldf[alldf$Time > as.POSIXct("2016-02-109 14:00:00", tz="GMT"),]
-  print(paste0(nrow(alldf) - nrow(alldfg)," positions removed due to incomplete VPS array"))
+#  # incomplete array
+#  alldfg <- alldf[alldf$Time > as.POSIXct("2016-02-09 14:00:00", tz="GMT"),]
+#   print(paste0(nrow(alldf) - nrow(alldfg)," positions removed due to incomplete VPS array"))
  
  # convert the Lat Long into UTMs using 'sp'
   alldf.sp <- SpatialPointsDataFrame(coords = alldf[,c("Longitude","Latitude")], 
@@ -63,22 +64,73 @@ library(adehabitatLT)
   
   alldf.utm = alldf.utm@data   
 ```
+
 ```{r, echo=FALSE}
+ ## ALL RELEASES COMBINED
  # N fish & total N positions
  print(paste0("Prior to filtering, ",nrow(alldf)," total positions in dataset"))
  print(paste0("Prior to filtering, ",length(unique(alldf$Id))," individual fish positioned"))
 
  # N pos per fish 
-  all.npf = alldfg %>%
+  all.npf = alldf %>%
    group_by(Id) %>%
    summarize(npos.all=n())%>%
    data.frame()
 
   print("Summary of N positions per fish, after reducing to applicable data")
   summary(all.npf$npos.all)
+```  
+  
+``` {r, echo=FALSE}
+  
+ fishrel = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/TagReleaseList.csv", 
+                     colClasses=c("RelTime"="character"))
+    fishrel$datetime = as.POSIXct(paste(fishrel$RelDate, fishrel$RelTime), format="%Y-%m-%d %H%M", tz="Etc/GMT-8")
+    names(fishrel)[3] <- "Id"
+    names(fishrel)[ncol(fishrel)] <- "datetime.Rel"
+      
+    # not enough memory to execute 'merge()' so using 'join' from plyr  
+    library(plyr)
+      alldf = plyr::join(alldf, fishrel, by="Id", type="left")
+    detach("package:plyr")  
+      
+   
+   
+ ## RELEASES 1 & 2
+  # N fish & total N positions
+ print(paste0("Prior to filtering, ",nrow(alldf[alldf$RelEv%in%c(1,2),])," total positions in Releases 1 & 2"))
+ print(paste0("Prior to filtering, ",length(unique(alldf$Id[alldf$RelEv%in%c(1,2)]))," individual fish positioned from Releases 1 & 2"))
+
+  # N pos per fish
+  all.npf = alldf[alldf$RelEv%in%c(1,2),] %>%
+   group_by(Id) %>%
+   summarize(npos.all=n())%>%
+   data.frame()
+
+  print("Summary of N positions per fish from Releases 1 & 2, after reducing to applicable data")
+  summary(all.npf$npos.all)
+  
+  
+  ## RELEASES 3 - 5 
+   # N fish & total N positions 
+ print(paste0("Prior to filtering, ",nrow(alldf[alldf$RelEv%in%c(3,4,5),])," total positions in Releases 3, 4, & 5"))
+ print(paste0("Prior to filtering, ",length(unique(alldf$Id[alldf$RelEv%in%c(3,4,5)]))," individual fish positioned from Releases 3, 4, & 5"))
+
+ # N pos per fish
+  all.npf = alldf[alldf$RelEv%in%c(3,4,5),] %>%
+   group_by(Id) %>%
+   summarize(npos.all=n())%>%
+   data.frame()
+
+  print("Summary of N positions per fish from Releases 3, 4, & 5, after reducing to applicable data")
+  summary(all.npf$npos.all)
 ```
+Note: these values appear to differ from those presented in the VEMCO report. These values are based on release dates, and the vemco reports are based on detection dates. There were two fish from release 2 which were detected after 2016-03-09 00:00:00 GMT, for a total of 304 positions. One was only detected after that date, and the other was detected both before and after. 
+
 
 ## Primary HPE filter: <0.5 HPEs
+### To see an assessment of error of sync tags, refer to full script "Exploration_DataFiltPrimary.R"
+
 ```{r echo=FALSE}
  reddf = alldfg[alldfg$Hpes < 0.5,]
   
