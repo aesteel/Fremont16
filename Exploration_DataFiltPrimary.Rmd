@@ -15,6 +15,7 @@ library(ggplot2)
 library(grid) 
 library(cowplot)
 library(viridis)
+library(maptools)
 ```
 
 ### Read in Data 
@@ -85,6 +86,16 @@ alldfg.utm <- spTransform(alldfg.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units
   # point data for measured error vs HPEs   
    plot(allsync.calib$error_m ~ allsync.calib$Hpes, xlim=c(0,1000), ylab="measured error", xlab="HPEs")
     
+   
+   #### look at errors for rel 1,2 and rel 3,4,5 ####
+   allsync.calib$Time = as.POSIXct(allsync.calib$Time, tz="GMT")
+  
+    # rel 1/2  
+    median(allsync.calib$error_m[allsync.calib$Time < as.POSIXct("2016-03-09", tz="GMT")])
+    # rel 3/4/5
+    median(allsync.calib$error_m[allsync.calib$Time >= as.POSIXct("2016-03-09", tz="GMT")])
+   
+   
   # calculate average errors for binned data
     hpetable = dplyr::select(allsync.calib, error_m, Hpes)
     hpetable = hpetable[hpetable$Hpes<=50,]     # subset b/c 99.9% of all positions have HPEs<43
@@ -162,18 +173,28 @@ alldfg.utm <- spTransform(alldfg.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units
   percKeep <- (nKeepHpe/(nLowHpe+nHighHpe+nKeepHpe))*100
     
   # read in the river channel and project properly
-  riverbank = readOGR(dsn="GIS/2004_channel", layer="2004_channel_freTightclipWGS84")
+  vemco.wgs84 <- CRS("+proj=longlat +datum=WGS84") 
+
+  
+  ######### is this the projection of the following file, or do I need to specify it with readOGR() ###########
+  
+  
+ riverbank = readOGR(dsn="GIS/2004_channel", layer="2004_channel_freTightclipWGS84")
      # convert to be useful in ggplot; still not sure what this actually does       
       ggriverbank <- fortify(riverbank, region="BYDEL")
       
-    highhpe=ggplot(data=alldfg[alldfg$Hpes>=5 & alldfg$Hpes<50,], aes(y=Latitude, x=Longitude, colour=Hpes)) + 
+    highhpe=ggplot(data=alldfg[alldfg$Hpes>=5 & alldfg$Hpes<50,], 
+                   aes(y=Latitude, x=Longitude, colour=Hpes)) + 
       geom_point(size=1.5) + 
-      scale_colour_gradient2(name="HPEs", low = "green3", mid="yellow", high = "red", midpoint=15, space = "rgb", na.value = "grey50", guide = "colourbar") +
+      geom_polygon(data = ggriverbank, aes(x=long, y=lat, group=group)) + 
+      scale_colour_gradient2(name="HPEs", low = "green3", mid="yellow", high = "red", 
+                             midpoint=15, space = "rgb", na.value = "grey50", guide = "colourbar") +
       ggtitle(paste0("Positional HPEs > 5: ",round(percHigh,1),"% of all positions")) +
       scale_y_continuous(breaks=seq(38.758,38.764,0.001)) + 
       scale_x_continuous(breaks=seq(-121.672, -121.664, 0.001)) +
       coord_fixed() + 
-      theme_bw() + theme(title=element_text(vjust=2), axis.title.x=element_text(vjust=-.5),axis.title.y=element_text(vjust=1))
+      theme_bw() + theme(title=element_text(vjust=2),
+                         axis.title.x=element_text(vjust=-.5),axis.title.y=element_text(vjust=1))
 
 # other code that sucessfully adds river line; unsure why I can't integrate it easily into the above
 #     ptdens.keep =  ggplot(data=alldfg[alldfg$Hpes>=5 & alldfg$Hpes<50,],aes(Longitude,Latitude)) + 
@@ -206,6 +227,56 @@ alldfg.utm <- spTransform(alldfg.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units
      plot_grid(highhpe, lowhpe, keephpe, nrow=3, ncol=1)
     dev.off()
 ```
+
+# code pulled from 2015 to plot density contours of removed positions (based on HPE>0.5)
+```{r density plots fig 9}
+
+   ggplot(ggriverbank) +  aes(long,lat,group=group, fill = id) +
+          geom_path(color="black") +
+          coord_equal() + theme_bw()
+
+    # create the constant theme and plots      
+    roundfunc <- function(l) { (l <- round(l, 3))}  
+     commonTheme = list(labs(color="Density",fill="Density",
+                x="Longitude", y="Latitude"),
+           theme_bw(),
+           theme(legend.position=c(0,1),
+                 legend.justification=c(0,1)))
+       
+     
+        ptdens.keep =  ggplot(data=alldf[alldf$Hpes<0.5,], 
+                              aes(x=Longitude,y=Latitude)) + 
+            geom_point(alpha=.1, color="grey80") + 
+            stat_density2d(aes(fill=..level..,alpha=..level..), 
+                           geom='polygon',colour='black') + 
+            scale_fill_continuous(low="white",high="blue") +
+            guides(alpha="none") + coord_fixed(ratio=1) + 
+            geom_path(data = ggriverbank, aes(long, lat, group=group)) +
+            scale_y_continuous(label=roundfunc) +  
+            scale_x_continuous(label=roundfunc) + 
+            commonTheme
+
+        ptdens.remove =  ggplot(data=alldf[alldf$Hpes>=0.5 & alldf$Hpes<500,], 
+                                aes(Longitude,Latitude)) + 
+            geom_point(alpha=.1, color="grey80") + 
+            stat_density2d(aes(fill=..level..,alpha=..level..), 
+                           geom='polygon',colour='black') + 
+            scale_fill_continuous(low="white",high="red") +
+            guides(alpha="none") + coord_fixed(ratio=1) + 
+            geom_path(data = ggriverbank, aes(long, lat, group=group)) +
+            scale_y_continuous(label=roundfunc,
+                               limits=range(ggriverbank$lat)) +  
+            scale_x_continuous(label=roundfunc, 
+                               limits=range(ggriverbank$long)) +
+            commonTheme
+        
+        # print plots in propwer grid
+        windows()
+        plot_grid(ptdens.remove, ptdens.keep, labels = c("A", "B"), ncol=1, align="v")
+        #plot_grid(ptdens.remove, ptdens.keep, labels = c("D", "E"))        
+        
+```    
+
 
 ###  Implement HPEs threshold in filtering
 - This now matches the report from VEMCO (they report 83,658 + 21,054 = 104712 positions or 67% after filtering to HPE<0.5)
@@ -275,7 +346,7 @@ For example, using an HPEs filter of 1.0, half of the pairs of calculated positi
 - plots percent of positions remaining for individual fish after filtering at HPE<1 (Fig 8)
 ```{r, echo=FALSE, fig.height=8, fig.width=7}
  # prior to HPE filtering
- all.npf = alldfg %>%
+ all.npf = alldf %>%
    group_by(Id) %>%
    summarize(npos.all=n())%>%
    data.frame()
@@ -290,7 +361,7 @@ For example, using an HPEs filter of 1.0, half of the pairs of calculated positi
 
   outliers.pre = all.npf[all.npf$npos.all %in% sort(boxplot.stats(all.npf$npos.all)$out),]
       
-  ggplot(data=alldfg[alldfg$Id %in% outliers.pre$Id,], aes(x=Longitude, y=Latitude)) + geom_point() +
+  ggplot(data=alldf[alldf$Id %in% outliers.pre$Id,], aes(x=Longitude, y=Latitude)) + geom_point() +
     facet_wrap(~Id, ncol=6) + ggtitle("Tracks of outliers, positions not filtered")
 
  # after HPE filtering
