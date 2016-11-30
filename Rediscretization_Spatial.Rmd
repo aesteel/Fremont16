@@ -32,7 +32,7 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
 - Before redistretizing, remove bursts with < 10 positions (too few to rediscretize in adehabitatLT)
 - After, recalculated migration speed between positions
 
-```{r}
+```{r review pre-disc data, echo=TRUE}
   options(digits=20) #keep 
  red7 <- readRDS("Maestros/AllFish_FiltSec4Bursts.RData")  # single object, named red7
  
@@ -50,7 +50,7 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
     max(red7$spd_mps, na.rm=T)  # 67.6 mps
 ```
 
-```{r}
+```{r short bursts, echo=FALSE}
   bursts.rem = data.frame(ndetects.burst[ndetects.burst$ndet<10,])
      nrow(bursts.rem) # 74 bursts removed
     sum(bursts.rem$ndet) # 373 positions removed
@@ -70,7 +70,7 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
                         infolocs=red8[,c("Hpes","east","north")])
 ```
 
-```{r}
+```{r spat disc, echo=TRUE}
   # discretize in space
   redlt.ssrdz = (redisltraj(red8.ltraj, u=27, type="space", nnew=50)) 
     # u=25 is the smallest distance where the code will work, when ran with rel 1&2
@@ -102,7 +102,7 @@ Save the discretized object to RData
 
 Note: In 2015 I removed tracks which had < 10 positions after spatial discretization. However, this year's anaysis is slightly different since I'm working with bursts  ->  we should have already controlled for sparse tracks (i.e., those where interpolation might be inapporpriate). Plus, above I've removed any burst with < 10 positions. Therefore, I'm imposing no additional filtering after discretization. 
 
-```{r, echo=FALSE}
+```{r add stage, echo=FALSE}
 
     # SacRiver Stage - measured by USGS
 #   stage = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/SacDischarge.csv", colClasses=c("TimePST"="character"))
@@ -130,7 +130,7 @@ Note: In 2015 I removed tracks which had < 10 positions after spatial discretiza
    compare = merge(relstgr, frestg, all.x=T, by="datetimePST")
     compare$stage_ft.x - compare$stage_ft.y
     
-  hist(compare$stage_ft.x - compare$stage_ft.y)
+  hist(compare$stage_ft.x - compare$stage_ft.y, xlab="point estimates (USGS stage - CDEC stage)", main="compare spot measures from USGS to continuous gage of CDEC")
    mean(compare$stage_ft.x - compare$stage_ft.y, na.rm=T)
    # -1.33
    sd(compare$stage_ft.x - compare$stage_ft.y, na.rm=T)
@@ -169,7 +169,8 @@ Note: In 2015 I removed tracks which had < 10 positions after spatial discretiza
    hgdat = merge( fishrel, frestg[,c("stage_ft", "datetimePST","stageid")], by.y="stageid", by.x="RelIndex", all.x=T)
 
    
-   hg = ggplot(frestg, aes(x=datetimePST, y=stage_ft)) + geom_line() + geom_hline(aes(yintercept=33), lty=2) +
+   hg = ggplot(frestg, aes(x=datetimePST, y=stage_ft)) + 
+     geom_line() + geom_hline(aes(yintercept=33), lty=2) +
      geom_point(data=hgdat, aes(x=datetime.Rel, y=stage_ft, col=factor(RelEv)), pch=16, cex=6) + 
      ggtitle("Release Dates by River Stage at Fremont Weir \n(cdec gauge)") + 
      xlab("Date (PST)") + ylab("River Stage (ft)") + 
@@ -180,11 +181,11 @@ Note: In 2015 I removed tracks which had < 10 positions after spatial discretiza
   ## write this to file
   saveRDS(red8.ssrdz, "Maestros/RediscSpat_27m.RData")
 ```
-
+__writes discretized dataset to file: "Maestros/RediscSpat_27m.RData"__
 
 
 And finally, output the general metrics about the remaining dataset
-```{r}
+```{r, echo=TRUE}
     dim(red8.ssrdz) # 12257 detections after discretization
     length(unique(red8.ssrdz$id))  # 634
     ndetects.discr = summarize(group_by(red8.ssrdz, id), ndet = n())  

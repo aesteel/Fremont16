@@ -50,7 +50,7 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
     max(red7$spd_mps, na.rm=T)  # 67.6 mps
 ```
 
-```{r remove short bursts}
+```{r remove short bursts, echo=FALSE}
   bursts.rem = data.frame(ndetects.burst[ndetects.burst$ndet<10,])
      nrow(bursts.rem) # 217 bursts removed
     sum(bursts.rem$ndet) # 1154 positions removed

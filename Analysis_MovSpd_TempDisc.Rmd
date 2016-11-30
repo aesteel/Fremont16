@@ -30,7 +30,7 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
 
 ## Movement Speed (mean spd per track)
 Using the dataset filtered and discretized by time, we'll calculate the mean movement speed per track
-```{r get data}
+```{r get data, echo=FALSE}
   red2 <- readRDS("Maestros/RediscTime_20s.RData")  
 
    options(digit.secs = 6)
@@ -38,7 +38,7 @@ Using the dataset filtered and discretized by time, we'll calculate the mean mov
 ```
 
 Visualize with a variety of plots
-```{r plot raw data}
+```{r plot raw data, include=FALSE}
 
        # plot all tracks as lattice in a pdf
        # pdf("Graphics/Tracks_tempredisc_20sec_Staggered.pdf", width=8, height=10.5)
@@ -74,7 +74,7 @@ Visualize with a variety of plots
 
 ## Calculate overall path speeds
 Using path length and passage time
-```{r mean spd}
+```{r mean spd, echo=FALSE}
    pathspd = summarize(group_by(red2,id),pathlength_m = round(sum(dist, na.rm=T),1), first=min(date), last= max(date), RelHr = unique(RelHr), RelEv=unique(RelEv)) #FL = unique(FL), weight = unique(Weight), 
    pathspd = data.frame(pathspd)
     pathspd$passagetime_s = as.numeric(difftime(pathspd$last, pathspd$first, units="sec"))
@@ -82,7 +82,7 @@ Using path length and passage time
 ```
 
 ## Plot all speeds
-```{r plot spds}
+```{r plot spds, echo=FALSE}
   #windows(3.5,4); par(mar=c(5,5.5,4,4))
   boxplot(pathspd$mps, xlab="", ylab=expression("Ground Speed (m s"^"-1)"))
    axis(side=1,at=1, labels="All fish")
@@ -100,7 +100,7 @@ Using path length and passage time
 
 ## Statistical effect of release hour
 There is a significant effect of release hour, both then it is considered as a continuous variable and as a factor, but the models and the plots indicate that the effect is very small. We will include the release hour as a mixed effect in future models, but because there is such a huge spread in release hours we won't analyze these groups seperately. 
-```{r RelHr vs spd}
+```{r RelHr vs spd, echo=TRUE}
   mps.RelHr <- lm(mps ~ (RelHr), data=pathspd)  
    summary(mps.RelHr) 
    plot(mps.RelHr)  # meets assumptions beautifully! Both when RelHr is continuous (violates circ stats) and when it is a factor
@@ -119,7 +119,7 @@ There is a significant effect of release hour, both then it is considered as a c
 ## Statistical effect of release event
 Release Events 1,2&3 are not significantly different from one another, nor are 4 and 5 significantly different from one another, but the two groups (1,2,3 vs 4,5) are different. This make sense, as 1,2 and 3 were released before over topping, and 4 and 5 were during the overtopping event. 
 
-```{r RelEv vs spd}
+```{r RelEv vs spd, echo=TRUE}
   mps.RelEv <- lm(mps ~ (RelEv), data=pathspd)  
    summary(mps.RelEv) 
    plot(mps.RelEv)  # meets assumptions beautifully! Both when RelEv is continuous (violates circ stats) and when it is a factor

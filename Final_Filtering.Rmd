@@ -132,6 +132,7 @@ Note: these values appear to differ from those presented in the VEMCO report. Th
 ### To see an assessment of error of sync tags, refer to full script "Exploration_DataFiltPrimary.R"
 
 ```{r echo=FALSE}
+  alldfg = alldf # relict from old code
  reddf = alldfg[alldfg$Hpes < 0.5,]
   
   # N fish & total N positions

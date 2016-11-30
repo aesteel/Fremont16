@@ -8,7 +8,7 @@ output: pdf_document
 ## Turning Angles
 Using dataset filtered and discretized by distance, we will calculate the turning angles
 
-```{r setup, echo=FALSE}
+```{r setup, include=FALSE}
 # required packages
 library(dplyr)
 library(sp)
@@ -33,14 +33,14 @@ library(HH)           # hov()
 
 ## get data
 ```{r get data}
-  red.r21 <- readRDS("Maestros/RediscSpat_25m.RData")  
+  red.r21 <- readRDS("Maestros/RediscSpat_27m.RData")  
 
    options(digit.secs = 6)
    red.r21$date = as.POSIXct(red.r21$date)     
 ```
 
 ## clean data
-```{r}
+```{r clean data, echo=FALSE}
   # remove the last row for every fish
   red.r21 = red.r21[!is.na(red.r21$dist),]
 
@@ -56,7 +56,7 @@ library(HH)           # hov()
 ```
 
 ## autocorrelation eval; isn't working yet
-```{r}
+```{r, echo=FALSE, eval=FALSE}
       # ## look at autocorrelation of angles within each fish
       #   # I believe we can use the test functions built into adehabitatLT, but it's not 100% clear from the paper by Dray 2010 or Calenge 2009
       #   # Based on other literature, we should only compare angles when the step lengths are constant. 
@@ -74,7 +74,7 @@ library(HH)           # hov()
 
 
 ## mean bearings and turning angles  - unsure if this is correct! Check conversion to bearings wth mo's for-loop and function ('bearing()')
-```{r means}
+```{r means, echo=TRUE}
 
 ## Calculate mean bearings and turn angles for each fish so we can use standard statistics on independent samples (one per fish)
    red.indivmn = as.data.frame(summarise(group_by(red.r21, id, RelEv), 
@@ -88,7 +88,7 @@ library(HH)           # hov()
         # Bartlett's K-squared = .38811, p=0.533
   
     # check for ~N
-      windows()
+      #windows()
        qqnorm(red.indivmn$mn.bearing/60)
        qqline(red.indivmn$mn.bearing/60)
          # not perfect but not tooo bad
