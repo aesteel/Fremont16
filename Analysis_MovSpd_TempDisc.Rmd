@@ -1,0 +1,138 @@
+---
+title: "Analysis_MovSpd_TempDisc"
+author: "Anna Steel"
+date: "November 3, 2016"
+output: pdf_document
+---
+
+```{r startup, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(maptools)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+library(adehabitatHR)
+library(stringr)
+library(circular)
+library(psych)        # circadian.mean(); circadian.sd()
+library(multcomp)     # glht()
+#library(userfriendlyscience)
+
+river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
+
+```
+
+## Movement Speed (mean spd per track)
+Using the dataset filtered and discretized by time, we'll calculate the mean movement speed per track
+```{r get data}
+  red2 <- readRDS("Maestros/RediscTime_20s.RData")  
+
+   options(digit.secs = 6)
+   red2$date = as.POSIXct(red2$date)     
+```
+
+Visualize with a variety of plots
+```{r plot raw data}
+
+       # plot all tracks as lattice in a pdf
+       # pdf("Graphics/Tracks_tempredisc_20sec_Staggered.pdf", width=8, height=10.5)
+       #   lapply(seq(from=24, to=480, by=24), function(x) {plot.ltraj(dl(red2)[(x-23):x])})
+       # dev.off()
+              
+       # plot speeds by size
+        #   windows()
+        #   plot(red2$spd_mps ~ red2$Weight)
+        #    abline(lm(red2$spd_mps ~ red2$Weight), col="red")
+        #   plot(red2$spd_mps ~ red2$FL, xlab="Fork Length", ylab="Ground Speed (mps)", main="Both runs combined")
+        #    abline(lm(red2$spd_mps ~ red2$FL), col="red")
+        #           #  abline(lm(red2$spd_mps[red2$run=="LFC"] ~ red2$FL[red2$run=="LFC"]), col="green3") 
+        #           #  abline(lm(red2$spd_mps[red2$run=="WRC"] ~ red2$FL[red2$run=="WRC"]), col="cyan2")
+        #           #   points(red2$spd_mps[red2$run=="WRC"] ~ red2$FL[red2$run=="WRC"], col="cyan4")
+    
+        #  summary(lm(red2$spd_mps ~ red2$FL))
+        #  summary(lm(red2$spd_mps ~ red2$FL))
+    
+       # plot a few simple scatterplots with spatial elements
+        #   windows()
+        #     plot(red2$spd_mps ~ red2$x) 
+        #     plot(red2$y ~ red2$spd_mps)
+        #     plot(red2$spd_mps ~ red2$dx)
+        #     plot(red2$dy ~ red2$spd_mps)
+            
+      # plot tracks with points color-coded for speed 
+        #           spdmap2 = ggplot(data=red2, aes(x=x, y=y, colour=spd_mps)) + geom_point() + scale_colour_gradientn(colours=rainbow(7)) 
+        #            windows(); spdmap2
+
+```
+
+
+## Calculate overall path speeds
+Using path length and passage time
+```{r mean spd}
+   pathspd = summarize(group_by(red2,id),pathlength_m = round(sum(dist, na.rm=T),1), first=min(date), last= max(date), RelHr = unique(RelHr), RelEv=unique(RelEv)) #FL = unique(FL), weight = unique(Weight), 
+   pathspd = data.frame(pathspd)
+    pathspd$passagetime_s = as.numeric(difftime(pathspd$last, pathspd$first, units="sec"))
+    pathspd$mps = pathspd$pathlength_m / pathspd$passagetime_s
+```
+
+## Plot all speeds
+```{r plot spds}
+  #windows(3.5,4); par(mar=c(5,5.5,4,4))
+  boxplot(pathspd$mps, xlab="", ylab=expression("Ground Speed (m s"^"-1)"))
+   axis(side=1,at=1, labels="All fish")
+  
+  #   ## plot speed by FL
+  #   windows(4.5,5); par(mar=c(5,5.5,4,4))
+  #   plot(pathspd$mps ~ pathspd$FL, xlab="Fork length (mm)", ylab=expression("Ground Speed (m s"^"-1)"), main="Reach-scale Ground Speed by Size")
+  #   
+   
+  ## plot speed by RelHrfac
+  #windows(5,5); par(mar=c(5,5.5,4,4))
+  boxplot(pathspd$mps ~ pathspd$RelHr, xlab="Hour of Release", ylab=expression("Ground Speed (m s"^"-1)"), main="Reach-scale Ground Speed by Release Time")
+
+```
+
+## Statistical effect of release hour
+There is a significant effect of release hour, both then it is considered as a continuous variable and as a factor, but the models and the plots indicate that the effect is very small. We will include the release hour as a mixed effect in future models, but because there is such a huge spread in release hours we won't analyze these groups seperately. 
+```{r RelHr vs spd}
+  mps.RelHr <- lm(mps ~ (RelHr), data=pathspd)  
+   summary(mps.RelHr) 
+   plot(mps.RelHr)  # meets assumptions beautifully! Both when RelHr is continuous (violates circ stats) and when it is a factor
+   
+   # post-hoc test designed for linear models with factor predictor: multcomp::glht() was recommended
+     pathspd$RelHrfac = factor(pathspd$RelHr)
+     testmod = lm(mps ~ 0+RelHrfac, data = pathspd)
+      summary(testmod)
+     posthoc.mod = glht(testmod, linfct = mcp(RelHrfac="Tukey"))
+      summary(posthoc.mod)
+ 
+     boxplot(mps ~ RelHrfac, data = pathspd)
+```   
+
+
+## Statistical effect of release event
+Release Events 1,2&3 are not significantly different from one another, nor are 4 and 5 significantly different from one another, but the two groups (1,2,3 vs 4,5) are different. This make sense, as 1,2 and 3 were released before over topping, and 4 and 5 were during the overtopping event. 
+
+```{r RelEv vs spd}
+  mps.RelEv <- lm(mps ~ (RelEv), data=pathspd)  
+   summary(mps.RelEv) 
+   plot(mps.RelEv)  # meets assumptions beautifully! Both when RelEv is continuous (violates circ stats) and when it is a factor
+   
+   # as an anova test, with tukey posthoc test
+     pathspd$RelEvfac = factor(pathspd$RelEv)
+           bartlett.test(pathspd$RelEvfac~pathspd$RelEv)
+
+     testmod = aov(mps ~ 0+RelEvfac, data = pathspd)
+      summary(testmod)
+     TukeyHSD(testmod)
+     
+     boxplot(mps ~ RelEvfac, data = pathspd, ylab="Mean Track Speed (mps)", xlab="ReleaseEvent")
+```      
+
+

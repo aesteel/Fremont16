@@ -16,6 +16,11 @@ library(grid)
 library(cowplot)
 library(viridis)
 library(maptools)
+
+ riverbank = readOGR(dsn="GIS/2004_channel", layer="2004_channel_freTightclipWGS84")
+     # convert to be useful in ggplot; still not sure what this actually does       
+      ggriverbank <- fortify(riverbank, region="BYDEL")
+ 
 ```
 
 ### Read in Data 
@@ -83,18 +88,56 @@ alldfg.utm <- spTransform(alldfg.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units
   # Calculate distance btwn lat-long coords
    allsync.calib$error_m =  sqrt((allsync.calib$TrueX - allsync.calib$X)^2 + (allsync.calib$TrueY - allsync.calib$Y)^2)
   
-  # point data for measured error vs HPEs   
-   plot(allsync.calib$error_m ~ allsync.calib$Hpes, xlim=c(0,1000), ylab="measured error", xlab="HPEs")
-    
-   
-   #### look at errors for rel 1,2 and rel 3,4,5 ####
+  # median error for all positions
+   median(allsync.calib$error_m)
+
+  # look at errors for rel 1,2 and rel 3,4,5 ##
    allsync.calib$Time = as.POSIXct(allsync.calib$Time, tz="GMT")
-  
+    allsync.calib$RelWindow = NA
+     allsync.calib$RelWindow[allsync.calib$Time < as.POSIXct("2016-03-09", tz="GMT")] <-  12
+     allsync.calib$RelWindow[allsync.calib$Time >= as.POSIXct("2016-03-09", tz="GMT")] <- 345
+     
     # rel 1/2  
-    median(allsync.calib$error_m[allsync.calib$Time < as.POSIXct("2016-03-09", tz="GMT")])
+    median(allsync.calib$error_m[allsync.calib$RelWindow==12])
     # rel 3/4/5
-    median(allsync.calib$error_m[allsync.calib$Time >= as.POSIXct("2016-03-09", tz="GMT")])
+    median(allsync.calib$error_m[allsync.calib$RelWindow==345])
    
+  # median errors by fixed tag - all data
+    tagmed = allsync.calib %>%
+      group_by(Id) %>%
+      summarize(med.error = median(error_m), Lat = mean(Latitude), Long = mean(Longitude)) %>%
+      data.frame()
+    
+    ggplot(tagmed[tagmed$Id!=65106,], aes(x=Long, y=Lat, color=med.error)) +
+      geom_point(cex=4) + coord_fixed() + scale_color_viridis() + 
+      #geom_path(data = ggriverbank, aes(x=long, y=lat, group=group)) +   
+          # I can add river if I don't add color grouping variable above. No time to solve. Nov 3, 2016
+      scale_y_continuous(breaks=seq(38.758,38.764,0.001)) + 
+      scale_x_continuous(breaks=seq(-121.672, -121.664, 0.001)) +
+      ggtitle("Median Measured Error (m) for fixed location tags; \necluded tagID 65106 with error = 29.2m")
+
+  # median errors by fixed tag - release event
+    tagmed.relev = allsync.calib %>%
+      group_by(Id, RelWindow) %>%
+      summarize(med.error = median(error_m), Lat = mean(Latitude), Long = mean(Longitude)) %>%
+      data.frame()
+    
+    ggplot(tagmed.relev[tagmed.relev$RelWindow==12,], aes(x=Long, y=Lat, color=med.error)) +
+      geom_point(cex=4) + coord_fixed() + scale_color_viridis() + 
+      #geom_path(data = ggriverbank, aes(x=long, y=lat, group=group)) +   
+          # I can add river if I don't add color grouping variable above. No time to solve. Nov 3, 2016
+      scale_y_continuous(breaks=seq(38.758,38.764,0.001)) + 
+      scale_x_continuous(breaks=seq(-121.672, -121.664, 0.001)) +
+      ggtitle("Median Measured Error (m) for fixed location tags,\nRelease Events 1 & 2")
+    
+    ggplot(tagmed.relev[tagmed.relev$RelWindow==345,], aes(x=Long, y=Lat, color=med.error)) +
+      geom_point(cex=4) + coord_fixed() + scale_color_viridis() + 
+      #geom_path(data = ggriverbank, aes(x=long, y=lat, group=group)) +   
+          # I can add river if I don't add color grouping variable above. No time to solve. Nov 3, 2016
+      scale_y_continuous(breaks=seq(38.758,38.764,0.001)) + 
+      scale_x_continuous(breaks=seq(-121.672, -121.664, 0.001)) +
+      ggtitle("Median Measured Error (m) for fixed location tags,\nRelease Events 3, 4, & 5")
+     
    
   # calculate average errors for binned data
     hpetable = dplyr::select(allsync.calib, error_m, Hpes)
@@ -112,6 +155,9 @@ alldfg.utm <- spTransform(alldfg.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units
                 quant95HPEm=quantile(error_m, 0.95))%>%
      mutate(bincent = (binsize*group)-(binsize/2)) %>%
      data.frame()
+
+  # point data for measured error vs HPEs   
+   plot(allsync.calib$error_m ~ allsync.calib$Hpes, xlim=c(0,1000), ylab="measured error", xlab="HPEs")
 
   # plot bin moments
    viridiscol = viridis(4)
@@ -162,7 +208,7 @@ alldfg.utm <- spTransform(alldfg.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units
 
 ### Spatial distribution of HPEs in fish positions (Similiar to Fig 9 in 2015 report)
 - Eventually will add river line to these plots but needs more research to do in ggplot
-``` {r, echo=FALSE, warnings=FALSE, fig.height=9}
+```{r}
   # Fig 9, similar  
   nHighHpe <- nrow(alldfg[alldfg$Hpes>=5,])
   nLowHpe <- nrow(alldfg[alldfg$Hpes<5 & alldfg$Hpes>=0.5,])
@@ -172,16 +218,6 @@ alldfg.utm <- spTransform(alldfg.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units
   percLow <-(nLowHpe/(nLowHpe+nHighHpe+nKeepHpe))*100
   percKeep <- (nKeepHpe/(nLowHpe+nHighHpe+nKeepHpe))*100
     
-  # read in the river channel and project properly
-  vemco.wgs84 <- CRS("+proj=longlat +datum=WGS84") 
-
-  
-  ######### is this the projection of the following file, or do I need to specify it with readOGR() ###########
-  
-  
- riverbank = readOGR(dsn="GIS/2004_channel", layer="2004_channel_freTightclipWGS84")
-     # convert to be useful in ggplot; still not sure what this actually does       
-      ggriverbank <- fortify(riverbank, region="BYDEL")
       
     highhpe=ggplot(data=alldfg[alldfg$Hpes>=5 & alldfg$Hpes<50,], 
                    aes(y=Latitude, x=Longitude, colour=Hpes)) + 

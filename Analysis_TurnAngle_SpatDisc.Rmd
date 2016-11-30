@@ -1,0 +1,105 @@
+---
+title: "Analysis_TurnAngle_SpatDisc"
+author: "Anna Steel"
+date: "November 14, 2016"
+output: pdf_document
+---
+
+## Turning Angles
+Using dataset filtered and discretized by distance, we will calculate the turning angles
+
+```{r setup, echo=FALSE}
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(maptools)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+library(adehabitatHR)
+library(stringr)
+library(circular)
+library(psych)        # circadian.mean(); circadian.sd()
+library(multcomp)     # glht()
+library(gridExtra)
+library(HH)           # hov()
+
+#source("Functions_General.R")
+```
+
+## get data
+```{r get data}
+  red.r21 <- readRDS("Maestros/RediscSpat_25m.RData")  
+
+   options(digit.secs = 6)
+   red.r21$date = as.POSIXct(red.r21$date)     
+```
+
+## clean data
+```{r}
+  # remove the last row for every fish
+  red.r21 = red.r21[!is.na(red.r21$dist),]
+
+  # add a compass bearing, seperately for quadrant 4 (top left)
+  # The way adehabitatLT calculates the absolute angle is with 0 along the positive xaxis, 
+  #  with the top of the unit circle as positive values from 0 to 180 and the bottom as negative values from 0 to -180.
+  # Thus, the following two lines convert that into compass bearings
+  red.r21$compass.angle[red.r21$abs.angle<=rad(90)] <- 90 + (-1)*deg(red.r21$abs.angle[red.r21$abs.angle<=rad(90)] )
+  red.r21$compass.angle[red.r21$abs.angle>rad(90) ] <- 360 - ( deg(red.r21$abs.angle[red.r21$abs.angle>rad(90)   ]) - 90 )
+  
+  # and convert 'rel.angle' which is measured in radians to 'rel.deg' which is measured in degrees (-180 to 180)
+   red.r21$rel.deg = deg(red.r21$rel.angle)
+```
+
+## autocorrelation eval; isn't working yet
+```{r}
+      # ## look at autocorrelation of angles within each fish
+      #   # I believe we can use the test functions built into adehabitatLT, but it's not 100% clear from the paper by Dray 2010 or Calenge 2009
+      #   # Based on other literature, we should only compare angles when the step lengths are constant. 
+      #   #  but the help file says these tests are only for regular trajectories with equal lag time between detections
+      # 
+      #   acfang.ltraj(dl(red2), which="relative")
+      # 
+      #   relang.indep = data.frame(id = unique(red.r21$id), permut.test.p = NA)
+      #   for(i in 1:nrow(relang.indep)) 
+      #    {
+      #      temp = testang.ltraj(dl(red2)[i], which = "relative")
+      #      relang.indep[i,"permut.test.p"] <- temp[[1]]$pvalue
+      #    }
+```
+
+
+## mean bearings and turning angles  - unsure if this is correct! Check conversion to bearings wth mo's for-loop and function ('bearing()')
+```{r means}
+
+## Calculate mean bearings and turn angles for each fish so we can use standard statistics on independent samples (one per fish)
+   red.indivmn = as.data.frame(summarise(group_by(red.r21, id, RelEv), 
+          mn.bearing=as.numeric(mean.circular(circular(compass.angle, units="degrees"))),  # use circular statistic here
+          mn.turndeg=as.numeric(mean(abs(rel.deg), na.rm=T)) ))  # because these are +/- values from straight, use arithmetic mean of abs values
+
+
+  ##  Look at normality and heterogeneity of variance
+    # check for homogeneitry of var for subsequent ANOVA
+      bartlett.test(red.indivmn$mn.bearing~red.indivmn$RelEv)
+        # Bartlett's K-squared = .38811, p=0.533
+  
+    # check for ~N
+      windows()
+       qqnorm(red.indivmn$mn.bearing/60)
+       qqline(red.indivmn$mn.bearing/60)
+         # not perfect but not tooo bad
+       
+      
+      # From Lix et al 1996, the Welch test is the least sensitive (in terms of type 1 error) to skew/kurtosis and heterogeneity of variance
+      #  but this is still a parametric test that compares means (assumes means describe the distribution)
+      pt.Welch.aov = oneway.test(red.indivmn$mn.bearing ~ factor(red.indivmn$RelEv))
+         # F = 29.166, num df = 1, denom df = 427.53, p-value = 0.0000001104
+      library(userfriendlyscience)
+       posthocTGH(y=red.indivmn$mn.bearing, x=factor(red.indivmn$RelEv)  )
+      
+```      
+
