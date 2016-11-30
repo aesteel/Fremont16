@@ -6,7 +6,7 @@ output: pdf_document
 ---
 
 
-```{r, include=FALSE} 
+```{r startup, include=FALSE} 
 # required packages
 library(dplyr)
 library(sp)
@@ -28,8 +28,8 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
 
 ```
 
-## Read in non-rediscretized data (just filtered) and add release metadata
-``` {r}
+## Read in non-rediscretized data (just filtered, prior to splitting into bursts) and add release metadata
+``` {r read in data}
   load("Maestros/AllFish_FiltSec3Hold.RData") 
    dat = red6; rm(red6)
   
@@ -45,7 +45,7 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
 
 ## Store sunset and sunrise times 
 - Referenced from: http://aa.usno.navy.mil (mean for range of first two releases: 2/22 - 3/8/2016)
-```{r}
+```{r sunrise sunset}
   sunrise = 06.63
   sunset = 17.98
 ```
@@ -54,13 +54,13 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
 - Calculated from Google Earth positions, referencing CFTC receivers at known locations / rkm 
 
 - The rkm are calculated with the golden gate at rkm 0, and Chipps Island at km 69.5
-```{r}
+```{r pre-array distance}
 travdist_km = 55.1  
 ```  
 
 ## Run several more data cleaning and organizing steps
 ### Extract first and last detections for each fish
-```{r, echo=FALSE}
+```{r first last detections, echo=FALSE}
      fl.df = dat %>%
         group_by(id) %>%
         slice(c(1,n()))
@@ -86,7 +86,7 @@ travdist_km = 55.1
 - Add code for night or day, using sunrise/sunset times incorporated above, to both release and arrival.
 
 - Also calculate passage time - may be useful later
-```{r, echo=FALSE}
+```{r daynight code, echo=FALSE}
      fl.df2$Rel.hrDay =  as.POSIXlt(fl.df2$datetime.Rel)$hour +
                            as.POSIXlt(fl.df2$datetime.Rel)$min/60 + 
                            as.POSIXlt(fl.df2$datetime.Rel)$sec/3600
@@ -119,7 +119,7 @@ travdist_km = 55.1
 ```
 
 ## Calculate mean and median transit times 
-```{r, echo=FALSE}
+```{r transit descriptive stats, echo=FALSE}
   paste0("mean = ",mean(fl.df2$Delay.hr))
   paste0("sd = ",sd(fl.df2$Delay.hr))
   paste0("median = ",median(fl.df2$Delay.hr))
@@ -194,7 +194,9 @@ _____________________________________________________________________________
       xlab("Release Event") + ylab("Transit time to Array (hr)") + 
       ylim(25,55) + ggtitle("(no outliers)")
     plot_grid(relev.all, relev.noout)
-    
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=8}
     #table(fl.df3$Rel.hrDayfac)
     
     hrday.relev =  ggplot(data = fl.df3, aes(x=Rel.hrDayfac, y=Delay.hr, fill=factor(RelEv))) + 
@@ -229,7 +231,7 @@ _____________________________________________________________________________
    summarize(median.F.hr = median.circular(suppressWarnings(circular(F.hrDay, 
             units="hours", template="clock24", rotation="clock"))),
             mean.F.hr=circadian.mean(F.hrDay),
-            sd.F.hr=circadian.sd(F.hrDay)[2]) %>%
+            sd.F.hr=unlist(circadian.sd(F.hrDay)[2])) %>%
    data.frame()
    
    Relhr.cent$median.F.hr = as.numeric(Relhr.cent$median.F.hr)
@@ -311,8 +313,8 @@ We can use he test proposed by Pewsey (2002) which is suitable for sapmle sizes 
       
    # create loop to run test for each release hour
     Relhrfac = sort(unique(as.numeric(as.character(fl.df3$Rel.hrDayfac))))
-    result_table = data.frame(Relhrfac, teststat = rep(NA,8), pval = rep(NA,8))
-    for(i in 1:8)  
+    result_table = data.frame(Relhrfac, teststat = rep(NA,length(Relhrfac)), pval = rep(NA,length(Relhrfac)))
+    for(i in 1:length(Relhrfac))  
      { circ_i = suppressWarnings(as.circular(fl.df3$F.rad[fl.df3$Rel.hrDayfac==Relhrfac[i]], 
                                              template="clock24", rotation="clock"))
      
@@ -373,7 +375,7 @@ Regardless, I'm also not sure if time sunk into this exercise is valuable, so it
    bartlett.test(delayresid, fl.df3$Rel.hrDay) # residuals heteroscedastic  
    fligner.test(delayresid, fl.df3$Rel.hrDay)  # residuals heteroscedastic  
 ```
-Doesn't meet assumptions.
+Doesn't meet assumptions, due to outliers with long delay times. But is it close enough?
    
 ### Extended cosine model (additional sin & cos parameters):
 ```{r, echo=FALSE}

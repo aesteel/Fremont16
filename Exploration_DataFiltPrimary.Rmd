@@ -15,12 +15,13 @@ library(ggplot2)
 library(grid) 
 library(cowplot)
 library(viridis)
+library(maptools)
 ```
 
 ### Read in Data 
 - Open script from Fremont16.Rproj in GitHub to ensure directories are correct
 ``` {r, echo=FALSE}
- load("Maestros/alldf.RData")
+ load("Maestros/alldf.RData") # object 'alldf'
  options("digits.secs"=6)
  alldf$Time <- as.POSIXct(as.character(alldf$Time), format="%Y-%m-%d %H:%M:%OS", tz = "GMT")
 
@@ -73,14 +74,17 @@ alldfg.utm <- spTransform(alldfg.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units
   
    allsync.calib <- merge(allsync, calibsync[,c("Id","TrueLat","TrueLon", "TrueX","TrueY")], by="Id", all.x=T) 
     allsync.calib <- allsync.calib[allsync.calib$Hpes<1000,]
+    allsync.calib$Time = as.POSIXct(allsync.calib$Time, tz="GMT")
 
   # Calculate distance btwn lat-long coords
    allsync.calib$error_m =  sqrt((allsync.calib$TrueX - allsync.calib$X)^2 + (allsync.calib$TrueY - allsync.calib$Y)^2)
   
-  # point data for measured error vs HPEs   
-   plot(allsync.calib$error_m ~ allsync.calib$Hpes, xlim=c(0,1000), ylab="measured error", xlab="HPEs")
-    
+ # point data for measured error vs HPEs - removed b/c time consuming and not informative
+#   plot(allsync.calib$error_m ~ allsync.calib$Hpes, xlim=c(0,1000), ylab="measured error", xlab="HPEs")
+   
   # calculate average errors for binned data
+    median(allsync.calib$error_m[allsync.calib$Time < as.POSIXct("2016-03-09", tz="GMT")])
+    
     hpetable = dplyr::select(allsync.calib, error_m, Hpes)
     hpetable = hpetable[hpetable$Hpes<=50,]     # subset b/c 99.9% of all positions have HPEs<43
 
@@ -156,8 +160,9 @@ Based on these graphics I will use a HPE filtering threshold of HPE=1; this seem
      # convert to be useful in ggplot; still not sure what this actually does       
       ggriverbank <- fortify(riverbank, region="BYDEL")
       
-    highhpe=ggplot(data=alldfg[alldfg$Hpes>=5 & alldfg$Hpes<50,], aes(y=Latitude, x=Longitude, colour=Hpes)) + 
-      geom_point(size=1.5) + 
+    highhpe=ggplot(data=alldfg[alldfg$Hpes>=5 & alldfg$Hpes<50,], aes(y=Latitude, x=Longitude)) + 
+      geom_point(aes(colour=Hpes), size=1.5) + 
+      geom_path(data = ggriverbank, aes(long, lat, group=group)) +
       scale_colour_gradient2(name="HPEs", low = "green3", mid="yellow", high = "red", midpoint=15, space = "rgb", na.value = "grey50", guide = "colourbar") +
       ggtitle(paste0("Positional HPEs > 5: ",round(percHigh,1),"% of all positions")) +
       scale_y_continuous(breaks=seq(38.758,38.764,0.001)) + 
@@ -165,18 +170,9 @@ Based on these graphics I will use a HPE filtering threshold of HPE=1; this seem
       coord_fixed() + 
       theme_bw() + theme(title=element_text(vjust=2), axis.title.x=element_text(vjust=-.5),axis.title.y=element_text(vjust=1))
 
-# other code that sucessfully adds river line; unsure why I can't integrate it easily into the above
-#     ptdens.keep =  ggplot(data=alldfg[alldfg$Hpes>=5 & alldfg$Hpes<50,],aes(Longitude,Latitude)) + 
-#             geom_point(alpha=.1, color="grey80") + 
-#             scale_fill_continuous(low="white",high="blue") +
-#             guides(alpha="none") + coord_fixed(ratio=1) + 
-#             geom_path(data = ggriverbank, aes(long, lat, group=group)) +
-#             scale_y_continuous(label=roundfunc) +  scale_x_continuous(label=roundfunc) + 
-#             commonTheme
-
-    
-    
-    lowhpe=ggplot(alldfg[alldfg$Hpes<5 & alldfg$Hpes>=1,], aes(y=Latitude, x=Longitude, colour=Hpes)) + geom_point(size=1.5) + 
+    lowhpe = ggplot(alldfg[alldfg$Hpes<5 & alldfg$Hpes>=1,], aes(y=Latitude, x=Longitude)) + 
+      geom_point(aes(colour=Hpes), size=1.5) + 
+      geom_path(data = ggriverbank, aes(long, lat, group=group)) +
       scale_colour_gradient2(name="HPEs", low = "green3", mid="yellow", high = "red", midpoint=3, space = "rgb", na.value = "grey50", guide = "colourbar") +
       ggtitle(paste0("Positional HPEs from 1 to 5: ",round(percLow,1),"% of all positions")) +
       scale_y_continuous(breaks=seq(38.758,38.764,0.001)) + 
@@ -184,7 +180,9 @@ Based on these graphics I will use a HPE filtering threshold of HPE=1; this seem
       coord_fixed() + 
       theme_bw() + theme(title=element_text(vjust=2), axis.title.x=element_text(vjust=-.5),axis.title.y=element_text(vjust=1))
     
-    keephpe=ggplot(alldfg[alldfg$Hpes<1,], aes(y=Latitude, x=Longitude, colour=Hpes)) + geom_point(size=1.5) + 
+    keephpe = ggplot(alldfg[alldfg$Hpes<1,], aes(y=Latitude, x=Longitude)) +
+      geom_point(aes(colour=Hpes), size=1.5) + 
+      geom_path(data = ggriverbank, aes(long, lat, group=group)) +
       scale_colour_gradient2(name="HPEs", low = "green3", mid="yellow", high = "red", midpoint=.8, space = "rgb", na.value = "grey50", guide = "colourbar") +
       ggtitle(paste0("Positional HPEs < 1: ",round(percKeep,1),"% of all positions")) +
       scale_y_continuous(breaks=seq(38.758,38.764,0.001)) + 
@@ -195,6 +193,54 @@ Based on these graphics I will use a HPE filtering threshold of HPE=1; this seem
     png("Graphics/Figure9_HPE_Spatial_Distn.png", width=6, height=9, units="in", res=600)
      plot_grid(highhpe, lowhpe, keephpe, nrow=3, ncol=1)
     dev.off()
+```
+
+
+# code pulled from 2015 to plot density contours of removed positions (based on HPE>0.5)
+```{r density plots fig 9}
+
+   ggplot(ggriverbank) +  aes(long,lat,group=group, fill = id) +
+          geom_path(color="black") +
+          coord_equal() + theme_bw()
+
+    # create the constant theme and plots      
+    roundfunc <- function(l) { (l <- round(l, 3))}  
+     commonTheme = list(labs(color="Density",fill="Density",
+                x="Longitude", y="Latitude"),
+           theme_bw(),
+           theme(legend.position=c(0,1),
+                 legend.justification=c(0,1)))
+       
+     
+      ptdens.keep =  ggplot(data=alldf[alldf$Hpes<0.5,], 
+                              aes(x=Longitude,y=Latitude)) + 
+            geom_point(alpha=.1, color="grey80") + 
+            stat_density2d(aes(fill=..level..,alpha=..level..), 
+                           geom='polygon',colour='black') + 
+            scale_fill_continuous(low="white",high="blue") +
+            guides(alpha="none") + coord_fixed(ratio=1) + 
+            geom_path(data = ggriverbank, aes(long, lat, group=group)) +
+            scale_y_continuous(label=roundfunc) +  
+            scale_x_continuous(label=roundfunc) + 
+            commonTheme
+
+        ptdens.remove =  ggplot(data=alldf[alldf$Hpes>=0.5 & alldf$Hpes<500,], 
+                                aes(Longitude,Latitude)) + 
+            geom_point(alpha=.1, color="grey80") + 
+            stat_density2d(aes(fill=..level..,alpha=..level..), 
+                           geom='polygon',colour='black') + 
+            scale_fill_continuous(low="white",high="red") +
+            guides(alpha="none") + coord_fixed(ratio=1) + 
+            geom_path(data = ggriverbank, aes(long, lat, group=group)) +
+          scale_y_continuous(label=roundfunc,
+                             limits=range(ggriverbank$lat)) +  
+            scale_x_continuous(label=roundfunc, 
+                               limits=range(ggriverbank$long)) +
+            commonTheme
+        
+        # print plots in propwer grid
+        windows()
+        plot_grid(ptdens.remove, ptdens.keep, labels = c("A", "B"), ncol=1, align="v")
 ```
 
 ###  Implement HPEs threshold in filtering
