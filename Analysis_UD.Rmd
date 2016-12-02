@@ -18,11 +18,14 @@ library(cowplot)
 library(viridis)
 library(adehabitatLT)
 library(adehabitatHR)
+library(raster)
+library(stringr)
 #library(userfriendlyscience)
 
 river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
-
+map.proj = CRS(river3@proj4string@projargs)
 ```
+
 # Kernel Utilization Distributions
 ### This script uses the temporally rediscretized dataset (currently only 20 sec steps) to create utilization distributions. Here I compare the 2016 data with the 2015 data for LFC - I excluded the WRC for coding simplicity, not scientific reasons. Utiltimately I plan to also consider variability in flow and fish size, but have not yet incorporated those additional variables. 
 
@@ -31,20 +34,16 @@ __________________
 ## Create kernel UD from tracks
 The fish positions are only those from the first two phases - includes 430 individuals. 
 
-To improve comparisons between 2015 and 2016 I constrained the 2016 UD to use the same grid as 2015. 
-
-The kernelUD() function in adehabitatLT gives options for how to select a smoothing parameter for the bivariate normal probability space defined at each recorded fish position. In 2015 I used the least squares cross validation to select an appropriate value for h (smoothing parameter) - the algorithm looks for a value of the smoothing parameter (h) where the CV(h) is minimized. In 2015 the value selected for h for LFC was 3.03. However, for the 2016 dataset the trend of change in CV(h) with h is monotonically increasing, thus the value used for h is the smallest one considered, or 2.48. 
-
-Other options for specifying h include using the ad hoc method of smoother selection, which is h = Sigma*n^(1/6), or using the same value for h that was selected for the 2015 dataset. 
-```{r, echo=FALSE}
+In 2015 the grid was automated to 10.03m squares, with a smoothing parameter h=3.03._ The kernelUD() function in adehabitatLT gives options for how to select a smoothing parameter for the bivariate normal probability space defined at each recorded fish position. In 2015 I used the least squares cross validation to select an appropriate value for h (smoothing parameter) - the algorithm looks for a value of the smoothing parameter (h) where the CV(h) is minimized. In 2015 the value selected for h for LFC was 3.03 (some stochasticity in this, changes slightly by run). _For 2016 I set the grid to 10m exactly._ I ran the kernelUD() function with both lscv and href [the ad hoc method of smoother selection, which is h = Sigma*n^(1/6)] approaches to estimating the smoothing parameter, as well as setting it to match the 2015 analysis (h=3.03).
+```{r kud15, echo=FALSE}
   # read in RData object from 2015
       kud15 <- readRDS("Maestros/kud15_final.RData")
         vud15 = getvolumeUD(kud15)
       # windows(width=4, height=4)
-      #  image(vud15[[1]], col=heat.colors(12), main=names(vud16)[1])
+        image(vud15[[1]], col=heat.colors(12), main="LFC 2015")
         xyz.15 <- as.image.SpatialGridDataFrame(vud15[[1]])
-      #   contour(xyz.2, add=TRUE, nlevels=6, drawlabels=FALSE)
-      print(paste("h-lscv-2015LFC = ",round(kud15$LFC@h$h,3)))
+        contour(xyz.15, add=TRUE, nlevels=6, drawlabels=FALSE)
+      print(paste("smoothing parameter h, lscv; 2015-LFC = ",round(kud15$LFC@h$h,3)))
       
   # save grid to reference for 2016 UD
     grid15 = SpatialPixels(SpatialPoints(kud15[[1]]@grid ))
@@ -52,39 +51,50 @@ Other options for specifying h include using the ad hoc method of smoother selec
   # create kud/vud for 2016
     red8.trdz = readRDS("Maestros/RediscTime_20s.RData")
 
+ # create an even 10x10m grid for 2016
+    e = extent(615430, 615430+(61*10), 4290820, 4290820+(47*10))
+    r = raster(e)
+    res(r) = c(10,10)   
+    projection(r) = map.proj 
+    grid10 = SpatialPixels(SpatialPoints(coordinates(r)))    
+```
+
+```{r kud 16 all fish, echo=FALSE}
     red8.grp = data.frame(grp=red8.trdz[,"run"])
      xytsp = (red8.trdz[,c("x","y")])
      coordinates(red8.grp) <- xytsp 
      proj4string(red8.grp) <- CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
-```
 
-```{r}
-   #kud16.lscv = kernelUD(red8.grp[,1], h="LSCV", kern="bivnorm", extent=0.1, grid=grid15)  # computationally intensive
-    kud16.lscv = readRDS("Maestros/kud16_lscv.RData") 
-     print(paste0("h-lscv = ",round(kud16.lscv$LFC@h$h,3)))
+    #kud16.lscv = kernelUD(red8.grp[,1], h="LSCV", kern="bivnorm", extent=0.1)
+       # computationally intensive, and won't converge (ie: select h) with or without grid as 10x10, also tried , hlim=c(0.05, .5))  
+    # saveRDS(kud16.lscv, "Maestros/kud16_lscv.RData")
+     
+     kud16.lscv.old = readRDS("Maestros/kud16_lscv.RData") # has grid of 10.3 x 10.3  -  don't know why this ran previously but now it won't. =/
+      print(paste0("smoothing parameter h, lscv; 2016-LFC = ",round(kud16.lscv.old$LFC@h$h,3)))
 
-   # windows()
-       plotLSCV(kud16.lscv)
+    # windows()
+    #   plotLSCV(kud16.lscv)
        
-    kud16.href = kernelUD(red8.grp[,1], h="href", kern="bivnorm", extent=0.1, grid=grid15)    
-     print(paste0("h-href = ",round(kud16.href$LFC@h$h,3)))
-   kud16.h15 = kernelUD(red8.grp[,1], h=3.03, kern="bivnorm", extent=0.1, grid=grid15) 
+    kud16.href = kernelUD(red8.grp[,1], h="href", kern="bivnorm", extent=0.1, grid=grid10)    
+     print(paste0("smothing parameter h, href; 2016-LFC = ",round(kud16.href$LFC@h$h,3)))
+     
+    kud16.h15 = kernelUD(red8.grp[,1], h=3.03, kern="bivnorm", extent=0.1, grid=grid10) 
 ```
 
 ```{r, echo=FALSE, fig.width=7, fig.height=10}        
-     vud16.lscv <- getvolumeUD(kud16.lscv)
+     vud16.lscv <- getvolumeUD(kud16.lscv.old)
      vud16.href <- getvolumeUD(kud16.href)
      vud16.h15 <- getvolumeUD(kud16.h15) 
 
 #  windows(width=10, height=3); 
-      par(mfrow=c(3,1))
-     image(vud16.lscv[[1]], col=heat.colors(12), main="LSCV")
+      par(mfrow=c(1,3))
+     image(vud16.lscv[[1]], col=heat.colors(12), main="LFC-old 2016; h=LSCV")
      xyz.lscv <- as.image.SpatialGridDataFrame(vud16.lscv[[1]])
       contour(xyz.lscv, add=TRUE, nlevels=6, drawlabels=FALSE)  
-     image(vud16.href[[1]], col=heat.colors(12), main="HREF")
+     image(vud16.href[[1]], col=heat.colors(12), main="LFC 2016; h=HREF")
      xyz.href <- as.image.SpatialGridDataFrame(vud16.href[[1]])
       contour(xyz.href, add=TRUE, nlevels=6, drawlabels=FALSE)  
-     image(vud16.h15[[1]], col=heat.colors(12), main="h=3.03 (2015)")
+     image(vud16.h15[[1]], col=heat.colors(12), main="LFC 2016; h=3.03")
      xyz.h15 <- as.image.SpatialGridDataFrame(vud16.h15[[1]])
       contour(xyz.h15, add=TRUE, nlevels=6, drawlabels=FALSE)  
       
@@ -96,10 +106,10 @@ Other options for specifying h include using the ad hoc method of smoother selec
  
  
 ## Compare 2016 UD with 2015 UD (for 2015-LFC)
-```{r, echo=FALSE, fig.height=10, fig.width=4}
+```{r comp contour 15 16 all fish, echo=FALSE, fig.height=10, fig.width=4}
   # plot contours overlapping    
     #windows(width=10, height=3); 
-   par(mfrow=c(3,1))
+   par(mfrow=c(1,3))
      contour(xyz.15, add=FALSE, nlevels=5, levels=25, drawlabels=FALSE, lwd=2.5, col="red", main="25% contour")
      contour(xyz.16, add=TRUE, nlevels=5, levels=25, drawlabels=FALSE, lwd=2.5, col="steelblue2")
      legend("topleft", legend=c("2015","2016"), fill=c("red","steelblue2"))
@@ -108,3 +118,32 @@ Other options for specifying h include using the ad hoc method of smoother selec
      contour(xyz.15, add=FALSE, nlevels=5, levels=75, drawlabels=FALSE, lwd=2.5,col="red", main="75% contour")
      contour(xyz.16, add=TRUE, nlevels=5, levels=75, drawlabels=FALSE, lwd=2.5,col="steelblue2")
 ```
+
+
+__________________________________
+
+# Comparing similar flows (low flows) across years
+In 2015 the river stage was at nearly 15 ft during all releases. In 2016 there was much more variability, with stages ranging from 16.3 to 31.12. Fish from release 1 passed at slightly lower flows, with a median stage of 18.4 ft and a max stage of 27.4 ft. 
+
+## Summary of the flows experienced by each release group
+```{r kud 16 low flows, echo=FALSE} 
+  print(data.frame(summarize(group_by(red8.trdz, RelEv), mn.stg=mean(stage_ft), max.stg=max(stage_ft), min.stg=min(stage_ft), nfish=length(unique(id)))))
+     
+     redrel1 = data.frame(grp=red8.trdz[red8.trdz$RelEv==1,"run"])
+     xytsp.1 = (red8.trdz[red8.trdz$RelEv==1,c("x","y")])
+     coordinates(redrel1) <- xytsp.1
+     proj4string(redrel1) <- CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
+
+        kud16.rel1.h15 = kernelUD(redrel1[,1], h=3.03, kern="bivnorm", extent=0.1, grid=grid10) # set same as lscv, 2015
+     vud16.rel1.h15 <- getvolumeUD(kud16.rel1.h15) 
+     
+     image(vud16.rel1.h15[[1]], col=heat.colors(12), main="LFC 2016, rel1; h=3.03")
+     xyz.h15 <- as.image.SpatialGridDataFrame(vud16.rel1.h15[[1]])
+      contour(xyz.h15, add=TRUE, nlevels=6, drawlabels=FALSE)  
+      
+   vud16.rel1 = vud16.rel1.h15 
+    xyz.rel1.16 <- as.image.SpatialGridDataFrame(vud16.rel1[[1]])
+```
+
+
+______________________
