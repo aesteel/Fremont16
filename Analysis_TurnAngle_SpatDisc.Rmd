@@ -33,7 +33,7 @@ library(HH)           # hov()
 
 ## get data
 ```{r get data}
-  red.r21 <- readRDS("Maestros/RediscSpat_25m.RData")  
+  red.r21 <- readRDS("Maestros/RediscSpat_27m.RData")  
 
    options(digit.secs = 6)
    red.r21$date = as.POSIXct(red.r21$date)     
@@ -55,36 +55,22 @@ library(HH)           # hov()
    red.r21$rel.deg = deg(red.r21$rel.angle)
 ```
 
-## autocorrelation eval; isn't working yet
-```{r, echo=FALSE, eval=FALSE}
-      # ## look at autocorrelation of angles within each fish
-      #   # I believe we can use the test functions built into adehabitatLT, but it's not 100% clear from the paper by Dray 2010 or Calenge 2009
-      #   # Based on other literature, we should only compare angles when the step lengths are constant. 
-      #   #  but the help file says these tests are only for regular trajectories with equal lag time between detections
-      # 
-      #   acfang.ltraj(dl(red2), which="relative")
-      # 
-      #   relang.indep = data.frame(id = unique(red.r21$id), permut.test.p = NA)
-      #   for(i in 1:nrow(relang.indep)) 
-      #    {
-      #      temp = testang.ltraj(dl(red2)[i], which = "relative")
-      #      relang.indep[i,"permut.test.p"] <- temp[[1]]$pvalue
-      #    }
-```
-
 
 ## mean bearings and turning angles  - unsure if this is correct! Check conversion to bearings wth mo's for-loop and function ('bearing()')
 ```{r means, echo=TRUE}
 
 ## Calculate mean bearings and turn angles for each fish so we can use standard statistics on independent samples (one per fish)
-   red.indivmn = as.data.frame(summarise(group_by(red.r21, id, RelEv), 
+   red.r21 = red.r21[order(red.r21$id, red.r21$date),]
+   red.indivmn = as.data.frame(summarise(group_by(red.r21, id, RelEv, RelHr, FL, weight), 
           mn.bearing=as.numeric(mean.circular(circular(compass.angle, units="degrees"))),  # use circular statistic here
           mn.turndeg=as.numeric(mean(abs(rel.deg), na.rm=T)),  # because these are +/- values from straight, use arithmetic mean of abs values
+          firstdate = date[1],
+          arriv.stgft = stage_ft[1],
           mn.stgft = as.numeric(mean(stage_ft))))
-
-   # plot of turn angles by water velocity and release event:
-   ggplot(data=red.indivmn, aes(x=mn.turndeg, group=factor(RelEv), fill=factor(RelEv))) + geom_histogram(alpha=0.5, position="identity", binwidth=1, color="black") + scale_fill_discrete(name="Release\nEvent")
-
+   #trash = group_by(red.r21, id) %>% slice(1) %>% data.frame() # check that the prev is working correctly
+   
+   red.indivmn$inv.mn.turndeg = 1/red.indivmn$mn.turndeg
+   
   ##  Look at normality and heterogeneity of variance
     # check for homogeneitry of var for subsequent ANOVA
       bartlett.test(red.indivmn$mn.turndeg~red.indivmn$RelEv)
@@ -106,6 +92,110 @@ library(HH)           # hov()
        
       # t.test
    t.test(red.indivmn$mn.turndeg~red.indivmn$RelEv) 
+```
+
+```{r plots}
+   # all fish together
+  ggplot(red.indivmn, aes(y=mn.turndeg, x=1)) + 
+    geom_boxplot() + ylab("Mean Turning Angle") +
+     theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+  
+   #  by release event:
+   tdeg.relev = ggplot(data=red.indivmn, aes(y=mn.turndeg, x=factor(RelEv))) + 
+     geom_boxplot() + xlab("Release Event") + ylab("Mean Turning Angle")
+   tdeg.relev
+   
+   png("Graphics/TDeg_by_RelEv.png", width=4, height=4, unit="in", res=600)
+     tdeg.relev
+   dev.off()
       
+   
+   ggplot(data=red.indivmn, aes(x=mn.turndeg, group=factor(RelEv), fill=factor(RelEv))) +
+     geom_histogram(alpha=0.5, position="identity", binwidth=1, color="black") + 
+     scale_fill_discrete(name="Release\nEvent") + xlab("Mean Turning Angle")
+   
+  # by release hour
+   ggplot(data=red.indivmn, aes(x=factor(RelHr), y=mn.turndeg)) + 
+    geom_boxplot() + xlab("Hour of Release") + ylab("Mean Turning Angle")
+   
+  # by mean River stage
+   tdeg.stg = ggplot(red.indivmn, aes(y=mn.turndeg, x=mn.stgft, colour=factor(RelEv))) + 
+    geom_point(pch=16, cex=4) +
+    xlab("Mean River Stage (ft)") + ylab("Mean Turning Angle") + 
+    ggtitle("Mean Track Turning Angle by River Stage") + scale_colour_discrete(name="Release\nEvent")
+   tdeg.stg
+   
+  png("Graphics/TDeg_by_Stage.png", width=6, height=4, unit="in", res=600)
+   tdeg.stg
+  dev.off()
+  
 ```      
+
+
+
+```{r full model}
+   omega = 2*pi/24
+    cosrelhr = cos(omega*red.indivmn$RelHr)
+    sinrelhr = sin(omega*red.indivmn$RelHr)
+      
+    # This uses true release events, not the arrival groups. 
+    
+  fullmod = lm(inv.mn.turndeg ~ factor(RelEv)+arriv.stgft + sinrelhr + cosrelhr, data=red.indivmn)
+    summary(fullmod)
+          
+  intmod = lm(inv.mn.turndeg ~ factor(RelEv)*arriv.stgft + sinrelhr + cosrelhr, data=red.indivmn)
+    summary(intmod)
+    
+  norelevmod = lm(inv.mn.turndeg ~ arriv.stgft + sinrelhr + cosrelhr, data=red.indivmn)
+    summary(norelevmod)  
+    
+  arrivmod = lm(inv.mn.turndeg ~ factor(RelEv) + arriv.stgft + sinrelhr + cosrelhr, data=red.indivmn)
+    summary(arrivmod)
+```  
+
+
+
+## read in and run 2015 data for comparision  -  spent lots of time getting stage onto 15 dataset, and didn't need to in the end!! Geesh, Anna 
+```{r comp2015, echo=FALSE}
+  # read in speed data - long way around the barn to get mean stages to go with mean bearings
+  red15 <- read.csv("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir/DATA-output/TrajectoryTagging_Filtered39ExtraFish_TempDisc20sec_Staggered.csv")
+ 
+   options(digit.secs = 6)
+   red15$date = as.POSIXct(red15$date, tz="Etc/GMT-8") 
+  
+   # read in stage data  
+  fre2015 = read.csv("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir/DATA/CDEC_FRE_stage.csv")
+  names(fre2015) = c("datePST","timePST","stage_ft")
+  
+  fre2015 = fre2015[!is.na(fre2015$stage_ft),]
+     fre2015$timePST = str_pad(fre2015$timePST, 4, pad = "0")
+     fre2015$datetimePST = as.POSIXct(paste(fre2015$datePST, fre2015$timePST), format="%Y%m%d %H%M", tz="Etc/GMT-8")
+     fre2015$datetimeUTC = as.POSIXct(as.character(fre2015$datetimePST + (60*60*8)), tz="GMT")
+     fre2015 = fre2015[order(fre2015$datetimePST),]
+     fre2015$stageid = rownames(fre2015)
+     
+  red15$RelIndex <- 
+     findInterval( red15$date, c(-Inf, head(fre2015$datetimePST,-1))+ c(0,diff(as.numeric(fre2015$datetimePST))/2 )) 
+  
+  red15 = merge(red15, fre2015[,c("stage_ft", "datetimePST","stageid")], by.y="stageid", by.x="RelIndex", all.x=T)
+ 
+  mnStg15 = summarize(group_by(red15,id),
+                          first=min(date), 
+                          arriv.stg = stage_ft[1],
+                          mnStg = mean(stage_ft))
+    mnStg15 = data.frame(mnStg15)
+
+    # read in mean bearing dataset 
+    red.indivmn15 = readRDS("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir/DATA-output/mn_turnangles.csv")
+  
+  # remove scout fish
+  mnStg15 = mnStg15[mnStg15$id!=51099,]
+
+  # merge mean stage onto mean bearings
+  red.indivmn15 = merge(red.indivmn15, mnStg15, by="id")
+
+```
+
 

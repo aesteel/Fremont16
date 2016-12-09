@@ -36,24 +36,24 @@ However, there were 221 additional fish released in phases 3 - 5 that could be i
 ```{r}
   load("Maestros/AllFish_FiltSec4Bursts.RData")  # single object, named red7
  
- dim(red7) # 102633 detections 
+ dim(red7) # 81895 detections 
     length(unique(red7$id))  # 430 unique fish
-    length(unique(red7$burst))  # 588 unique bursts
+    length(unique(red7$burst))  # 665 unique bursts
     
     ndetects.fish = summarize(group_by(red7, id), ndet = n())  
-      mean(ndetects.fish$ndet) # 238.9 per fish
-      range(ndetects.fish$ndet) # ranges from 28 - 660
+      mean(ndetects.fish$ndet) # 190.5 per fish
+      range(ndetects.fish$ndet) # ranges from 17 - 578
     ndetects.burst = summarize(group_by(red7, burst), ndet = n())  
-      mean(ndetects.burst$ndet) # 174.5 per fish
-      range(ndetects.burst$ndet) # ranges from 3 - 660
+      mean(ndetects.burst$ndet) # 123.2 per burst
+      range(ndetects.burst$ndet) # ranges from 3 - 578
       
-    max(red7$spd_mps, na.rm=T)  # 86.6 mps
+    max(red7$spd_mps, na.rm=T)  # 42.8 mps
 ```
 
 ```{r}
   bursts.rem = data.frame(ndetects.burst[ndetects.burst$ndet<10,])
-     nrow(bursts.rem) # 74 bursts removed
-    sum(bursts.rem$ndet) # 373 positions removed
+     nrow(bursts.rem) # 104 bursts removed
+    sum(bursts.rem$ndet) # 535 positions removed + 166 removed when cut the bursts (<4 pos remaining in cut burst) = 701 total positions removed
   red.br =  red7[(red7$burst %in% bursts.rem$burst),] 
   
   river3 = fortify(river3)
@@ -72,7 +72,7 @@ However, there were 221 additional fish released in phases 3 - 5 that could be i
 
 ```{r}
   # discretize in space
-  redlt.ssrdz = (redisltraj(red8.ltraj, u=25, type="space", nnew=5)) 
+  redlt.ssrdz = (redisltraj(red8.ltraj, u=27, type="space", nnew=5)) 
     # u=25 is the smallest distance where the code will work.
 
   # convert back to dataframe
@@ -82,19 +82,19 @@ However, there were 221 additional fish released in phases 3 - 5 that could be i
   # recalculate migration speed  
    red8.ssrdz$spd_mps = red8.ssrdz$dist / red8.ssrdz$dt
    
-    dim(red8.ssrdz) # 10796 detections after discretization
-    length(unique(red8.ssrdz$id))  # 439
+    dim(red8.ssrdz) # 9040 detections after discretization
+    length(unique(red8.ssrdz$id))  # 430
     ndetects.discr = summarize(group_by(red8.ssrdz, id), ndet = n())  
-      mean(ndetects.discr$ndet) # 28.75 per fish
-      range(ndetects.discr$ndet) # ranges from 10 - 41
-    max(red8.ssrdz$spd_mps, na.rm=T)  # 73.11 mps
+      mean(ndetects.discr$ndet) # 21.0 per fish
+      range(ndetects.discr$ndet) # ranges from 5-27
+    max(red8.ssrdz$spd_mps, na.rm=T)  # 20.5 mps
 
 ```
 
 
 
 
-Add covariates (release event, river stage) back into dataframe to possibly use later
+#Add covariates (release event, river stage) back into dataframe to possibly use later
 *Compared un-QAQCed data on river stage from CDEC station (no discharge available) with USGS measured values
 
 Save the discretized object to RData
@@ -104,11 +104,6 @@ Note: In 2015 I removed tracks which had < 10 positions after spatial discretiza
 ```{r, echo=FALSE}
 
     # SacRiver Stage - measured by USGS
-#   stage = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/SacDischarge.csv", colClasses=c("TimePST"="character"))
-#    stage$datetimePST = as.POSIXct(paste(stage$DatePST,stage$TimePST), format="%Y-%m-%d %H:%M")
-#    relstg = stage[,c("DatePST","datetimePST","Stage_ft","Vel_fps","MeasQ_cfs")]
-    
-    # data rounded to quarter hours where appropriate; otherwise deleted
   stager = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/SacDischargeRoundedtime.csv", colClasses=c("TimePST"="character"))
    stager$datetimePST = as.POSIXct(paste(stager$DatePST,stager$TimePST), format="%Y-%m-%d %H:%M")
    relstgr = stager[,c("DatePST","datetimePST","stage_ft")]
@@ -123,8 +118,7 @@ Note: In 2015 I removed tracks which had < 10 positions after spatial discretiza
    frestg = frestg[order(frestg$datetimePST),]
    frestg$stageid = rownames(frestg)
   
-
-  
+   
   ## compare the usgs and the cdec gauge data 
    compare = merge(relstgr, frestg, all.x=T, by="datetimePST")
     compare$stage_ft.x - compare$stage_ft.y
@@ -134,7 +128,6 @@ Note: In 2015 I removed tracks which had < 10 positions after spatial discretiza
    # -1.33
    sd(compare$stage_ft.x - compare$stage_ft.y, na.rm=T)
    # 0.37
-   
    
    
  ## merge onto position dataset
@@ -149,17 +142,19 @@ Note: In 2015 I removed tracks which had < 10 positions after spatial discretiza
     red8.ssrdz = red8.ssrdz[order(red8.ssrdz$date),]
 
   
-    
   # Fish Releases
-    fishrel = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/TagReleaseList.csv", colClasses=c("RelTime"="character"))
-        fishrel$datetime = as.POSIXct(paste(fishrel$RelDate, fishrel$RelTime), format="%Y-%m-%d %H%M", tz="Etc/GMT-8")
-        names(fishrel)[3] <- "id"
-        names(fishrel)[ncol(fishrel)] <- "datetime.Rel"
+   fishrel = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/TaggingDataRelEv.csv", 
+                      colClasses=c("RelTime"="character"))
+    fishrel$RelTime = str_pad(fishrel$RelTime, width=4, side="left", pad="0")
+    fishrel$RelTime = str_pad(fishrel$RelTime, width=6, side="right", pad="0")
+    
+    fishrel$datetime = as.POSIXct(paste(fishrel$RelDate, fishrel$RelTime), format="%Y-%m-%d %H%M%S", tz="Etc/GMT-8")
+    #names(fishrel)[3] <- "id"
+    names(fishrel)[ncol(fishrel)] <- "datetime.Rel"
+     fishrel$RelHr = as.POSIXlt(fishrel$datetime.Rel)$hour
         
-   red8.ssrdz = merge(red8.ssrdz, fishrel[,c("RelEv","CanID","id","RelLoc","datetime.Rel")], all.x=T)
+  red8.ssrdz = merge(red8.ssrdz, fishrel, by="id", all.x=T)
   
-   red8.ssrdz$RelHr = as.POSIXlt(red8.ssrdz$datetime.Rel)$hour
-
    
   # plot releases against the hydrograph of stage; uses magic step again! 
    fishrel$RelIndex <- 
@@ -167,23 +162,34 @@ Note: In 2015 I removed tracks which had < 10 positions after spatial discretiza
 
    hgdat = merge( fishrel, frestg[,c("stage_ft", "datetimePST","stageid")], by.y="stageid", by.x="RelIndex", all.x=T)
 
-   
-   hg = ggplot(frestg, aes(x=datetimePST, y=stage_ft)) + geom_line() + geom_point(data=hgdat, aes(x=datetime.Rel, y=stage_ft), col="red", pch=16, cex=4) + ggtitle("River Stage at Fremont Weir \n(cdec gauge)") + xlab("Date (PST)") + ylab("River Stage (ft)") + scale_colour_manual(name = "", values =c('red'='red'), labels = c('Release'))
-     
+   # plot releases against the hydrograph of stage; uses magic step again! 
+   fishrel$RelIndex <- 
+     findInterval( fishrel$datetime.Rel, c(-Inf, head(frestg$datetimePST,-1))+ c(0,diff(as.numeric(frestg$datetimePST))/2 )) 
+
+   hgdat = merge( fishrel, frestg[,c("stage_ft", "datetimePST","stageid")], by.y="stageid", by.x="RelIndex", all.x=T)
+
+
+   hg = ggplot(frestg, aes(x=datetimePST, y=stage_ft)) + 
+     geom_line() + geom_hline(aes(yintercept=33), lty=2) +
+     geom_point(data=hgdat, aes(x=datetime.Rel, y=stage_ft, col=factor(RelEv)), pch=16, cex=6) + 
+     ggtitle("Release Dates by River Stage at Fremont Weir \n(cdec gauge)") + 
+     xlab("Date (PST)") + ylab("River Stage (ft)") + 
+     scale_colour_manual(name = "", values =viridis(26), labels = c(1:5))
+
    hg
    
   ## write this to file
-  saveRDS(red8.ssrdz, "Maestros/RediscSpat_25m.RData")
+  saveRDS(red8.ssrdz, "Maestros/RediscSpat_27m.RData")
 ```
 
 
 
 And finally, output the general metrics about the remaining dataset
 ```{r}
-    dim(red8.ssrdz) # 10796 detections after discretization
+    dim(red8.ssrdz) # 9040 detections after discretization
     length(unique(red8.ssrdz$id))  # 430
     ndetects.discr = summarize(group_by(red8.ssrdz, id), ndet = n())  
-      mean(ndetects.discr$ndet) # 28.11 per fish
-      range(ndetects.discr$ndet) # ranges from 6 - 37
+      mean(ndetects.discr$ndet) # 21.0 per fish
+      range(ndetects.discr$ndet) # ranges from 5 - 27
     max(red8.ssrdz$spd_mps, na.rm=T)  # 20.49 mps
     ```

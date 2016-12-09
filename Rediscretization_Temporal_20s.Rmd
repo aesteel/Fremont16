@@ -36,23 +36,24 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
   options(digits=20) #keep 
   load("Maestros/AllFish_FiltSec4Bursts.RData")  # single object, named red7
  
- dim(red7) # 102633 detections 
+ dim(red7) # 81895 detections 
     length(unique(red7$id))  # 430 unique fish
-    length(unique(red7$burst))  # 588 unique bursts
+    length(unique(red7$burst))  # 665 unique bursts
     
     ndetects.fish = summarize(group_by(red7, id), ndet = n())  
-      mean(ndetects.fish$ndet) # 238.9 per fish
-      range(ndetects.fish$ndet) # ranges from 28 - 660
+      mean(ndetects.fish$ndet) # 190.5 per fish
+      range(ndetects.fish$ndet) # ranges from 17 - 578
     ndetects.burst = summarize(group_by(red7, burst), ndet = n())  
-      mean(ndetects.burst$ndet) # 174.5 per fish
-      range(ndetects.burst$ndet) # ranges from 3 - 660
+      mean(ndetects.burst$ndet) # 123.1 per burst
+      range(ndetects.burst$ndet) # ranges from 3 - 578
       
-    max(red7$spd_mps, na.rm=T)  # 86.6 mps
+    max(red7$spd_mps, na.rm=T)  # 42.8 mps
 ```
+
 ```{r}
   bursts.rem = data.frame(ndetects.burst[ndetects.burst$ndet<10,])
-     nrow(bursts.rem) # 74 bursts removed
-    sum(bursts.rem$ndet) # 373 positions removed
+     nrow(bursts.rem) # 107 bursts removed
+    sum(bursts.rem$ndet) # 535 positions removed + 166 removed when cutting into brsts = 701 positions removed. Still same as spatial dataset. 
   red.br =  red7[(red7$burst %in% bursts.rem$burst),] 
   
   ggplot(data = red.br, aes(x=east, y=north)) + geom_point() + 
@@ -102,15 +103,18 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
 
   
   # Fish Releases
-    fishrel = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/TagReleaseList.csv", colClasses=c("RelTime"="character"))
-        fishrel$datetime = as.POSIXct(paste(fishrel$RelDate, fishrel$RelTime), format="%Y-%m-%d %H%M")
-        names(fishrel)[3] <- "id"
-        names(fishrel)[ncol(fishrel)] <- "datetime.Rel"
+   fishrel = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/TaggingDataRelEv.csv", 
+                     colClasses=c("RelTime"="character"))
+    fishrel$RelTime = str_pad(fishrel$RelTime, width=4, side="left", pad="0")
+    fishrel$RelTime = str_pad(fishrel$RelTime, width=6, side="right", pad="0")
+    
+    fishrel$datetime = as.POSIXct(paste(fishrel$RelDate, fishrel$RelTime), format="%Y-%m-%d %H%M%S", tz="Etc/GMT-8")
+    #names(fishrel)[3] <- "id"
+    names(fishrel)[ncol(fishrel)] <- "datetime.Rel"
+     fishrel$RelHr = as.POSIXlt(fishrel$datetime.Rel)$hour
         
-   red8.trdz = merge(red8.trdz, fishrel[,c("RelEv","CanID","id","RelLoc","datetime.Rel")], all.x=T)
-
-  red8.trdz$RelHr = as.POSIXlt(red8.trdz$datetime.Rel)$hour
-
+  red8.trdz = merge(red8.trdz, fishrel, by="id", all.x=T)
+  
   red8.trdz$cdecStgIndex = NULL
 
   ## write this to file
@@ -121,10 +125,10 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
 
 And finally, output the general metrics about the remaining dataset
 ```{r}
-    dim(red8.trdz) # 17004 detections after discretization
+    dim(red8.trdz) # 14770 detections after discretization
     length(unique(red8.trdz$id))  # 430
     ndetects.discr = summarize(group_by(red8.trdz, id), ndet = n())  
-      mean(ndetects.discr$ndet) # 39.54 per fish
-      range(ndetects.discr$ndet) # ranges from 5 - 551
-    max(red8.trdz$spd_mps, na.rm=T)  # 2.36 mps
+      mean(ndetects.discr$ndet) # 34.4 per fish
+      range(ndetects.discr$ndet) # ranges from 5 -207
+    max(red8.trdz$spd_mps, na.rm=T)  # 2.11 mps
     ```

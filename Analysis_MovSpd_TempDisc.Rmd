@@ -75,39 +75,60 @@ Visualize with a variety of plots
 ## Calculate overall path speeds
 Using path length and passage time
 ```{r mean spd, echo=FALSE}
-   pathspd = summarize(group_by(red2,id),pathlength_m = round(sum(dist, na.rm=T),1), first=min(date), last= max(date), RelHr = unique(RelHr), RelEv=unique(RelEv), mnStg = mean(stage_ft)) #FL = unique(FL), weight = unique(Weight), 
-   pathspd = data.frame(pathspd)
+   red2 = red2[order(red2$id, red2$date),]
+   pathspd = summarize(group_by(red2,id),
+                       pathlength_m = round(sum(dist, na.rm=T),1), 
+                       first = min(date), last = max(date), 
+                       RelHr = unique(RelHr), RelEv = unique(RelEv), 
+                       mnStg = mean(stage_ft),
+                       stage_arrival = stage_ft[1],
+                       FL = unique(FL), weight = unique(weight))
+
+    pathspd = data.frame(pathspd)
     pathspd$passagetime_s = as.numeric(difftime(pathspd$last, pathspd$first, units="sec"))
     pathspd$mps = pathspd$pathlength_m / pathspd$passagetime_s
 ```
 
 ## Plot all speeds
 ```{r plot spds, echo=FALSE}
-  #windows(3.5,4); par(mar=c(5,5.5,4,4))
-  boxplot(pathspd$mps, xlab="", ylab=expression("Ground Speed (m s"^"-1)"))
-   axis(side=1,at=1, labels="All fish")
-  
-  #   ## plot speed by FL
-  #   windows(4.5,5); par(mar=c(5,5.5,4,4))
-  #   plot(pathspd$mps ~ pathspd$FL, xlab="Fork length (mm)", ylab=expression("Ground Speed (m s"^"-1)"), main="Reach-scale Ground Speed by Size")
-  #   
-   
-  ## plot speed by RelHrfac
+  # plot speed for all fish
+  # windows(3.5,4); par(mar=c(5,5.5,4,4))
+  ggplot(data=pathspd, aes(y=mps, x=1)) + geom_boxplot() + ylab("Ground Speed (mps)") +
+     theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+ 
+  # plot speed by RelHr
   #windows(5,5); par(mar=c(5,5.5,4,4))
-  boxplot(pathspd$mps ~ pathspd$RelHr, xlab="Hour of Release", ylab=expression("Ground Speed (m s"^"-1)"), main="Reach-scale Ground Speed by Release Time")
+  ggplot(data=pathspd, aes(x=factor(RelHr), y=mps)) + 
+    geom_boxplot() + xlab("Hour of Release") + ylab("Ground Speed (mps)")
    
   ## plot speed by RelEv
-  boxplot(pathspd$mps ~ pathspd$RelEv, xlab="Release Event", ylab=expression("Ground Speed (m s"^"-1)"), main="Reach-scale Ground Speed by Release Event")
-
-  ## plot speed by mean iver stage
-  ggplot(pathspd, aes(y=mps, x=mnStg, colour=factor(RelEv))) + 
-    geom_point(pch=16, cex=4) +
-    xlab("Mean River Stage (ft)") + ylab(expression("Ground Speed (m s"^"-1)")) + 
-    ggtitle("Reach-scale Ground Speed by River Stage") + scale_colour_discrete(name="Release\nEvent")
+  sog.relev = ggplot(data=pathspd, aes(x=factor(RelEv), y=mps)) + 
+    geom_boxplot() + xlab("Release Event (2016)") + ylab("Mean track speed (mps)")
+  sog.relev
   
+   png("Graphics/SoG_by_RelEv.png", width=4, height=4, unit="in", res=600)
+     sog.relev
+   dev.off()
+ 
+ ggplot(data=pathspd, aes(x=mps, group=factor(RelEv), fill=factor(RelEv))) + 
+   geom_histogram(alpha=0.5, position="identity", binwidth=.1, color="black") +
+   scale_fill_discrete(name="Release\nEvent")
+
+  ## plot speed by mean river stage experienced during the track
+  sog.stg = ggplot(pathspd, aes(y=mps, x=mnStg, colour=factor(RelEv))) + 
+    geom_point(pch=16, cex=4) +
+    xlab("Mean River Stage (ft)") + ylab("Mean track speed (mps)") + 
+    ggtitle("Reach-scale Ground Speed by River Stage") + scale_colour_discrete(name="Release\nEvent")
+  sog.stg
+  
+   png("Graphics/SoG_by_Stg.png", width=6, height=4, unit="in", res=600)
+     sog.stg
+   dev.off()
 ```
 
-## Statistical effect of release hour
+## Statistical effect of release hour alone
 There is a significant effect of release hour, both then it is considered as a continuous variable and as a factor, but the models and the plots indicate that the effect is very small. We will include the release hour as a mixed effect in future models, but because there is such a huge spread in release hours we won't analyze these groups seperately. 
 ```{r RelHr vs spd, echo=TRUE}
   mps.RelHr <- lm(mps ~ (RelHr), data=pathspd)  
@@ -125,7 +146,7 @@ There is a significant effect of release hour, both then it is considered as a c
 ```   
 
 
-## Statistical effect of release event
+## Statistical effect of release event alone
 Release Events 1,2&3 are not significantly different from one another, nor are 4 and 5 significantly different from one another, but the two groups (1,2,3 vs 4,5) are different. This make sense, as 1,2 and 3 were released before over topping, and 4 and 5 were during the overtopping event. 
 
 ```{r RelEv vs spd, echo=TRUE}
@@ -139,8 +160,155 @@ Release Events 1,2&3 are not significantly different from one another, nor are 4
   #   TukeyHSD(testmod)
    pathspd$RelEvfac = factor(pathspd$RelEv)
    t.test(mps ~ 0+RelEvfac, data = pathspd)
+    summarize(group_by(pathspd, RelEvfac), mean(mps, na.rm=T), sd(mps, na.rm=T))
    
    boxplot(mps ~ RelEvfac, data = pathspd, ylab="Mean Track Speed (mps)", xlab="ReleaseEvent")
-```      
+   
+   
+   # phase 2: re-assign the two fish from the first release that arrived with the second release
+   pathspd$grp <- NA
+    pathspd[pathspd$first < as.POSIXct("2016-03-02"),"grp"] <- 1
+    pathspd[pathspd$first > as.POSIXct("2016-03-02"),"grp"] <- 2
+    pathspd$grp = factor(pathspd$grp)
+    
+  mps.Grp <- lm(mps ~ grp, data=pathspd)  
+   summary(mps.Grp) 
+ 
+   t.test(mps ~ 0+grp, data = pathspd)
+    summarize(group_by(pathspd, grp), mean(mps, na.rm=T), sd(mps, na.rm=T))
+   
+   boxplot(mps ~ grp, data = pathspd, ylab="Mean Track Speed (mps)", xlab="Arrival Group")
+```   
+   
+## River Stage upon Arrival
+```{r river stage, echo=FALSE}
+  # by release event
+    data.frame(  summarize(group_by(pathspd, RelEv), med.stage = median(stage_arrival, na.rm=T), mn.stage = mean(stage_arrival, na.rm=T), sd.stage=sd(stage_arrival, na.rm=T), min.stage = min(stage_arrival, na.rm=T), max.stage = max(stage_arrival, na.rm=T)))
 
+  # by group (2 fish from rel 1 lumped in with rel2)
+      data.frame(  summarize(group_by(pathspd, grp), med.stage = median(stage_arrival, na.rm=T), mn.stage = mean(stage_arrival, na.rm=T), sd.stage=sd(stage_arrival, na.rm=T), min.stage = min(stage_arrival, na.rm=T), max.stage = max(stage_arrival, na.rm=T)))
+
+       
+  # SacRiver Stage - pulled from CDEC - ask for QAQC data from DWR if this seems okay 
+    frestg = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/FRE_stage_2016study.csv")
+    frestg = frestg[!is.na(frestg$stage_ft),]
+    frestg = frestg[frestg$stage_ft > 5 ,] # some missing values are recorded as 2 or 5; remove these entirely
+     frestg$timePST = str_pad(frestg$timePST, 4, pad = "0")
+     frestg$datetimePST = as.POSIXct(paste(frestg$datePST, frestg$timePST), format="%Y%m%d %H%M", tz="Etc/GMT-8")
+     frestg$datetimeUTC = as.POSIXct(as.character(frestg$datetimePST + (60*60*8)), tz="GMT")
+     frestg = frestg[order(frestg$datetimePST),]
+     frestg$stageid = rownames(frestg)
+
+  pathspd2 = pathspd
+  pathspd2$RelIndex <- 
+     findInterval( pathspd2$first, c(-Inf, head(frestg$datetimePST,-1))+ c(0,diff(as.numeric(frestg$datetimePST))/2 )) 
+
+  
+   mn.total.stg16 = mean(red2$stage_ft)
+   sd.total.stg16 = sd(red2$stage_ft)
+      mn.total.stg16; sd.total.stg16
+      
+#   # calculate mean of the mn stage estimates per individual
+#   print(paste("mean stage experienced 2016 (ie: mean of stages corresponding to all positions) =", mean(pathspd$mnStg, na.rm=T)))
+#   print(paste("sd stage experienced 2016 (ie: sd of stages corresponding to all positions) =", sd(pathspd$mnStg, na.rm=T)))
+  
+  
+  hg = ggplot(frestg, aes(x=datetimePST, y=stage_ft)) + 
+     geom_line() + geom_hline(aes(yintercept=33.5), lty=2) +
+     geom_point(data=pathspd, aes(x=first, y=stage_arrival, col=factor(RelEv)), pch=16, cex=6) + 
+     ggtitle("Arrival times by river stage at Fremont Weir \n(cdec gauge)") + 
+     xlab("Date (PST)") + ylab("River Stage (ft)") + 
+     scale_colour_manual(name = "Release\nEvent", values =viridis(2), labels = c(1:2))
+
+   hg
+   
+  png("Graphics/Arrival_Hydrograph.png", width=8, height=4, unit="in", res=600)
+   hg
+  dev.off()
+   
+``` 
+
+# build linear model to combine river stage, release event, and release hour (circular)
+```{r final model}
+  omega = 2*pi/24
+   cosrelhr = cos(omega*pathspd$RelHr)
+   sinrelhr = sin(omega*pathspd$RelHr)
+      
+  fullmod = lm(mps ~ factor(RelEv) + sinrelhr + cosrelhr + mnStg, data=pathspd)
+    summary(fullmod)
+    
+  # plot(fullmod)  # meets assumptions well enough to be trusted
+    
+```
+
+## read in and run 2015 data for comparision
+```{r comp2015, echo=FALSE}
+  red15 <- read.csv("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir/DATA-output/TrajectoryTagging_Filtered39ExtraFish_TempDisc20sec_Staggered.csv")  # with staggered the start point
+
+   options(digit.secs = 6)
+   red15$date = as.POSIXct(red15$date, tz="Etc/GMT-8") 
+   
+  # read in stage data  
+  fre2015 = read.csv("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir/DATA/CDEC_FRE_stage.csv")
+  names(fre2015) = c("datePST","timePST","stage_ft")
+  
+  fre2015 = fre2015[!is.na(fre2015$stage_ft),]
+     fre2015$timePST = str_pad(fre2015$timePST, 4, pad = "0")
+     fre2015$datetimePST = as.POSIXct(paste(fre2015$datePST, fre2015$timePST), format="%Y%m%d %H%M", tz="Etc/GMT-8")
+     fre2015$datetimeUTC = as.POSIXct(as.character(fre2015$datetimePST + (60*60*8)), tz="GMT")
+     fre2015 = fre2015[order(fre2015$datetimePST),]
+     fre2015$stageid = rownames(fre2015)
+     
+  red15$RelIndex <- 
+     findInterval( red15$date, c(-Inf, head(fre2015$datetimePST,-1))+ c(0,diff(as.numeric(fre2015$datetimePST))/2 )) 
+  
+  red15 = merge(red15, fre2015[,c("stage_ft", "datetimePST","stageid")], by.y="stageid", by.x="RelIndex", all.x=T)
+ 
+  pathspd15 = summarize(group_by(red15,id),
+                          pathlength_m = round(sum(dist, na.rm=T),1), 
+                          first=min(date), last= max(date), 
+                          FL = unique(FL), weight = unique(Weight), 
+                          mnStg = mean(stage_ft),
+                          stage_arrival = stage_ft[1],
+                          run=unique(run), RelHr = unique(RelHr))
+    pathspd15 = data.frame(pathspd15)
+
+    pathspd15$passagetime_s = as.numeric(difftime(pathspd15$last, pathspd15$first, units="sec"))
+    pathspd15$mps = pathspd15$pathlength_m / pathspd15$passagetime_s
+
+  # remove scout fish
+  pathspd15 = pathspd15[pathspd15$id!=51099,]
+
+      
+   mn.total.stg15 = mean(red15$stage_ft)
+   sd.total.stg15 = sd(red15$stage_ft)
+      mn.total.stg15; sd.total.stg15
+  
+#   # calculate mean of the mn stage estimates per individual
+#   print(paste("mean stage experienced 2015 (ie: mean of stages corresponding to all positions) =", mean(pathspd15$mnStg, na.rm=T)))
+#   print(paste("sd stage experienced 2015 (ie: sd of stages corresponding to all positions) =", sd(pathspd15$mnStg, na.rm=T)))
+
+```
+
+## Plot simple year comparisons
+```{r plot yr comp, echo=FALSE}
+   ps15min = pathspd15[,c("id","mps")]
+   ps15min$year="2015"
+
+   ps16min = pathspd[,c("id","mps")]
+   ps16min$year="2016"   
+   
+   psyr = rbind(ps15min, ps16min)
+
+   sog.yrcomp = ggplot(data=psyr, aes(y=mps, x=year)) + geom_boxplot() + ylab("Mean track speed (mps)")
+   sog.yrcomp
+   
+   png("Graphics/SoG_by_year.png", width=4, height=4, unit="in", res=600)
+     sog.yrcomp
+   dev.off()
+   
+   t.test(psyr$mps ~ psyr$year)
+   summarize(group_by(psyr, year), mean(mps), sd(mps))
+
+```  
 

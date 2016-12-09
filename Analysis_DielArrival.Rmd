@@ -33,14 +33,21 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
   load("Maestros/AllFish_FiltSec3Hold.RData") 
    dat = red6; rm(red6)
   
-  fishrel = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/TagReleaseList.csv", 
+  fishrel = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/TaggingDataRelEv.csv", 
                      colClasses=c("RelTime"="character"))
-    fishrel$datetime = as.POSIXct(paste(fishrel$RelDate, fishrel$RelTime), format="%Y-%m-%d %H%M", tz="Etc/GMT-8")
-    names(fishrel)[3] <- "id"
+    fishrel$RelTime = str_pad(fishrel$RelTime, width=4, side="left", pad="0")
+    fishrel$RelTime = str_pad(fishrel$RelTime, width=6, side="right", pad="0")
+    
+    fishrel$datetime = as.POSIXct(paste(fishrel$RelDate, fishrel$RelTime), format="%Y-%m-%d %H%M%S", tz="Etc/GMT-8")
+    #names(fishrel)[3] <- "id"
     names(fishrel)[ncol(fishrel)] <- "datetime.Rel"
         
    dat = merge(dat, fishrel, all.x=T)
     dat$RelHr = as.POSIXlt(dat$datetime.Rel)$hour
+    
+    dat$grp = NA
+     dat$grp[dat.grp$F.time<as.POSIXct("2016-03-05")] <- 1
+     dat$grp[dat.grp$F.time<as.POSIXct("2016-03-05")] <- 2
 ```
 
 ## Store sunset and sunrise times 
@@ -70,16 +77,18 @@ travdist_km = 55.1
      fl.df$fl = rep(c("F","L"), uniq.tag)  
     
         ff = fl.df[fl.df$fl=="F",] 
-         ff = ff[,c("Id","date","east","north","datetime.Rel","RelEv","CanID","fl")]
-         names(ff) = c("Id","F.time","F.east","F.north","datetime.Rel","RelEv","CanID","fl")
+         ff = ff[,c("Id","date","east","north","datetime.Rel","RelEv","grp","CanID","weight","FL","fl")]
+         names(ff) = c("Id","F.time","F.east","F.north","datetime.Rel","RelEv","grp","CanID","weight","FL","fl")
          ff$fl = NULL
          
         ll = fl.df[fl.df$fl=="L",]
-         ll = ll[,c("Id","date","east","north","datetime.Rel","RelEv","CanID","fl")]
-         names(ll) = c("Id","L.time","L.east","L.north","datetime.Rel","RelEv","CanID","fl")
+         ll = ll[,c("Id","date","east","north","datetime.Rel","RelEv","grp","CanID","weight","FL","fl")]
+         names(ll) = c("Id","L.time","L.east","L.north","datetime.Rel","RelEv","grp","CanID","weight","FL","fl")
          ll$fl = NULL
        
      fl.df2 = merge(ff,ll)
+     
+     plot(sort(fl.df2$F.time), (1:sum(!is.na(fl.df2$F.time)))/sum(!is.na(fl.df2$F.time)), type="s", ylab="Prop of fish", xlab="arrival date")
 ```  
 
 ### Calculate hour of day (decimal hours) for time when fish were released & when fish arrived at array; calculate transit time (a.k.a. 'delay') between
@@ -135,33 +144,17 @@ travdist_km = 55.1
                        median_hr=median(Delay.hr)))
 ```
 
-# Removed one fish with passage time of 13+ days; next longest was 3 hours (183 min)
+## Calculate ground speed during initial transit
 ```{r}
-  fl.df3 = fl.df2[fl.df2$Id != 36472,]
-```
-
-## Mean and median transit times WITHOUT outlier
-- outlier in Release Event 1, at 23:00
-- very similar to values calculated with outlier
-```{r, echo=FALSE}
-
+  fl.df2$transitspd.kmpd = 55.1/fl.df2$Delay.hr
   
-  paste0("mean = ",mean(fl.df3$Delay.hr))
-  paste0("sd = ",sd(fl.df3$Delay.hr))
-  paste0("median = ",median(fl.df3$Delay.hr))
-
-  data.frame(summarize(group_by(fl.df3, RelEv), 
-                       mean_hr=mean(Delay.hr), 
-                       sd_hr=sd(Delay.hr), 
-                       media_hrn=median(Delay.hr)))
+ mean(fl.df2$transitspd.kmpd, na.rm=T)
+ median(fl.df2$transitspd.kmpd)
+ sd(fl.df2$transitspd.kmpd)
+ 
+ summarize(group_by(fl.df2, RelEv), mean(transitspd.kmpd), median(transitspd.kmpd), sd(transitspd.kmpd))
   
-  data.frame(summarize(group_by(fl.df3, RelEv, Rel.hrDayfac), 
-                       mean_hr=mean(Delay.hr), 
-                       sd_hr=sd(Delay.hr), 
-                       media_hrn=median(Delay.hr)))
-```
-
-
+```  
 
 _____________________________________________________________________________
 
@@ -169,43 +162,80 @@ _____________________________________________________________________________
 
 # Plots to visualize initial transit time and passage time
 ```{r}
-  hist(fl.df3$Delay.hr, 
+  hist(fl.df2$Delay.hr, 
        main="Transit time from Release to Array", 
        xlab="Transit time (hours)", ylab="Frequency", breaks=50)
+  
+  ggplot(data=fl.df2, aes(x=Delay.hr, group=factor(RelEv), fill=factor(RelEv))) + 
+    geom_histogram(color="black", alpha=0.5, position="identity", binwidth=2) + 
+    xlim(c(24,96)) + xlab("Transit Time to Array (hr)") + 
+    scale_fill_discrete(name="Release\nEvent") 
+  ggplot(data=fl.df2, aes(y=Delay.hr, x=factor(RelEv))) + 
+    geom_boxplot() + 
+    ylim(c(24,96)) + ylab("Transit Time to Array (hr)") + xlab("Release Event")
+    
+  wilcox.test(Delay.hr ~ RelEv, data=fl.df2)
+   summarize(group_by(fl.df2, RelEv), meanDelay = mean(Delay.hr), sdDelay=sd(Delay.hr))
+  
+  hist(fl.df2$passtime.min, 
+       main="Passage time through Array", 
+       xlab="Passage time (min)",ylab="Frequency", breaks=50)     
+  
+  ggplot(data=fl.df2, aes(x=passtime.min, group=factor(RelEv), fill=factor(RelEv))) + 
+    geom_histogram(color="black", alpha=0.5, position="identity", binwidth=2) + 
+    xlab("Passage Time through Array (min)") + 
+    scale_fill_discrete(name="Release\nEvent") 
+  ggplot(data=fl.df2, aes(y=passtime.min, x=factor(RelEv))) + 
+    geom_boxplot() + 
+    ylab("Passage Time through Array (min)") + xlab("Release Event")
+  
+  wilcox.test(passtime.min ~ RelEv, data=fl.df2)
 
-  hist(fl.df3$passtime.min, 
-       main="Passage time through Array \n(excludes one outlier @ 19,169 min)", 
-       xlab="Passage time (min)",ylab="Frequency", breaks=50)              
 ```
+
 
 
 ## Differences by Release Event or Release Hour
 -  note: it would be nice to annotate boxes with respective sample sizes
-
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
-    #table(fl.df3$RelEv)
+    #table(fl.df2$RelEv)
   
-    relev.all = ggplot(fl.df3, aes(y=Delay.hr, x=factor(RelEv))) + 
+    relev.all = ggplot(fl.df2, aes(y=Delay.hr, x=factor(RelEv))) + 
       geom_boxplot() + 
       xlab("Release Event") + ylab("Transit time to Array (hr)") + 
       ggtitle("Transit time by Release Event")
-    relev.noout = ggplot(fl.df3, aes(y=Delay.hr, x=factor(RelEv))) + 
+  
+    relev.noout = ggplot(fl.df2, aes(y=Delay.hr, x=factor(RelEv))) + 
       geom_boxplot(outlier.shape=NA) + 
       xlab("Release Event") + ylab("Transit time to Array (hr)") + 
       ylim(25,55) + ggtitle("(no outliers)")
+    
     plot_grid(relev.all, relev.noout)
 ```
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=8}
-    #table(fl.df3$Rel.hrDayfac)
+    #table(fl.df2$Rel.hrDayfac)
     
-    hrday.relev =  ggplot(data = fl.df3, aes(x=Rel.hrDayfac, y=Delay.hr, fill=factor(RelEv))) + 
+    hrday.relev.box =  ggplot(data = fl.df2, aes(x=Rel.hrDayfac, y=Delay.hr, fill=factor(RelEv))) + 
       geom_boxplot(outlier.shape=NA) + 
       ylim(25,55) + 
-      ggtitle("Transit between release and array\n(statistical outliers not shown)") + 
+      ggtitle("Transit between release and array\n
+              (statistical outliers not shown)") + 
       ylab("Transit time (hour)") + xlab("Hour of Day of Release") + 
       guides(fill=guide_legend(title="Release\n Event"))
-    hrday.diel =  ggplot(data = fl.df3, aes(x=Rel.hrDayfac, y=Delay.hr, fill=factor(Rel.diel))) + 
+    
+    hrday.relev.pt =  ggplot(data = fl.df2, aes(x=Rel.hrDay, y=Delay.hr, fill=factor(RelEv))) + 
+       annotate("rect", xmin=sunrise, xmax=sunset, ymin=-Inf, ymax=Inf, fill="khaki1",  color="black", alpha=0.2) +
+       annotate("rect", xmin=sunset, xmax=24, ymin=-Inf, ymax=Inf ,fill="slategray3", color="black", alpha=0.2) +      
+       annotate("rect", xmin=0, xmax=sunrise, ymin=-Inf, ymax=Inf ,fill="slategray3", color="black", alpha=0.2) + 
+      geom_point(pch=21, cex=3, color="black") + 
+      ylim(29,65) + 
+      ggtitle("Transit between release and array") + 
+      ylab("Transit time (hour)") + xlab("Release - Hour of Day") + 
+      guides(fill=guide_legend(title="Release\n Event"))
+     
+        
+    hrday.diel =  ggplot(data = fl.df2, aes(x=Rel.hrDayfac, y=Delay.hr, fill=factor(Rel.diel))) + 
       geom_boxplot(outlier.shape=NA) + 
       ylim(25,55) + 
       ggtitle("Transit between release and array\n(statistical outliers not shown)") + 
@@ -219,14 +249,14 @@ _____________________________________________________________________________
 - requires circular statistics; use packages psych (mean/sd) and circular (median)
 ```{r, echo=FALSE}
   # all fish (matching 2015 report)
-   paste0("mean = ", circadian.mean(fl.df3$F.hrDay))  # 13.83
-   paste0("sd = ", circadian.sd(fl.df3$F.hrDay)$sd)   # 1.62 
-   med = as.numeric(median.circular(circular(fl.df3$F.hrDay, units="hours", template="clock24")))
+   paste0("mean = ", circadian.mean(fl.df2$F.hrDay))  # 13.83
+   paste0("sd = ", circadian.sd(fl.df2$F.hrDay)$sd)   # 1.62 
+   med = as.numeric(median.circular(circular(fl.df2$F.hrDay, units="hours", template="clock24")))
     if (med < 0 ) { med = med+24 }  # this library returns value [-12, 12]
    paste0("median = ",med)                            # 13.5
    
    # by release group
-   Relhr.cent = fl.df3 %>%
+   Relhr.cent = fl.df2 %>%
    group_by(Rel.hrDayfac) %>%
    summarize(median.F.hr = median.circular(suppressWarnings(circular(F.hrDay, 
             units="hours", template="clock24", rotation="clock"))),
@@ -244,15 +274,15 @@ _____________________________________________________________________________
 ## Circular plots: same data, two visualizations
 ```{r, echo=FALSE, fig.height = 8}
     
-   arrive.circ = ggplot(data=fl.df3, aes(x=F.hrDay, fill=factor(RelEv))) + 
+   arrive.circ = ggplot(data=fl.df2, aes(x=F.hrDay, fill=factor(RelEv))) + 
        geom_rect(data=NULL,aes(xmin=sunrise,xmax=sunset,ymin=-Inf,ymax=Inf),fill="khaki1") +
        geom_rect(data=NULL,aes(xmin=sunset,xmax=24,ymin=-Inf,ymax=Inf),fill="slategray3") +      
        geom_rect(data=NULL,aes(xmin=0,xmax=sunrise,ymin=-Inf,ymax=Inf),fill="slategray3") +      
-      geom_histogram(binwidth=.5,colour="black") + 
+      geom_histogram(binwidth=.75,colour="black") + 
       facet_wrap(~Rel.hrDayfac) + 
       scale_x_continuous("", limits=c(0,24), breaks=seq(0,24), labels=seq(0,24)) +         
       theme_bw() + coord_polar() + 
-      scale_fill_manual(values = c("white", "grey90")) + 
+      scale_fill_manual(values = c("white", "grey50")) + 
      guides(fill=guide_legend(title="Release\nEvent")) + 
       geom_vline(aes(xintercept=as.numeric(as.character(Rel.hrDayfac))), colour="red") 
             
@@ -261,15 +291,15 @@ _____________________________________________________________________________
     
     # another approach based on code from Pewsey et al 2013
     relcol = c("grey30","grey70")
-    Relhrfac = sort(unique(as.numeric(as.character(fl.df3$Rel.hrDayfac))))
+    Relhrfac = sort(unique(as.numeric(as.character(fl.df2$Rel.hrDayfac))))
    
     par(mfrow=c(3,3), mar=c(1,1,2,1))
     for(i in Relhrfac)  
-     { plotdat = suppressWarnings(as.circular(fl.df3$F.hrDay[fl.df3$Rel.hrDayfac==i],
+     { plotdat = suppressWarnings(as.circular(fl.df2$F.hrDay[fl.df2$Rel.hrDayfac==i],
                               units="hours", 
                               template="clock24", 
                               rotation="clock"))
-       metadat = fl.df3[fl.df3$Rel.hrDayfac==i,]
+       metadat = fl.df2[fl.df2$Rel.hrDayfac==i,]
        plot(plotdat, shrink=1.7, stack=TRUE, pch=16, bins=720, cex=.8,
             main=paste0("Release Event ",
                         unique(metadat$RelEv),"\nRelease Hour ",i,":00"))
@@ -287,55 +317,6 @@ _____________________________________________________________________________
 # Preliminary Exploration of circular statistics for diel questions
 
 
-## The following are derived from the test statistics I ran for 2015 to compare runs
-- Much/all of the following was coded with guidance from the text book "Circular Statitics in R' by Arthur Pewsey et al (2013)
-
-To select an appropriate statistical distrubition for the circular data we want to know if the data are symetrical (we know they are not uniform from looking at the plots, so won't bother to test this statistically, for now). If we do not reject symmetry, we may use the Jones-Pewsey or vonMises distributions, but if we do reject symmetry we may need to use the more flexible Batschelet distribution. 
-
-### Test for 'reflective symmetry' 
-We can use he test proposed by Pewsey (2002) which is suitable for sapmle sizes of 50 or more (ours are n=51 - 56 in each release hour)
-```{r, echo=FALSE}
-    # calculate the 'angle' and corresponding radians for arrival on a 24 hour clock
-   fl.df3$F.angle = 360*fl.df3$F.hrDay / 24
-   fl.df3$F.rad = rad(fl.df3$F.angle)
-
-   # read in function from Pewsey 2013 text; circdat is a circular data object in radians
-    RSTestStat = function(circdat) {    
-      n <- length(circdat) ; Rbar <- rho.circular(circdat)
-      t2bar <- trigonometric.moment(circdat, p=2, center=TRUE)
-      t3bar <- trigonometric.moment(circdat, p=3, center=TRUE)
-      t4bar <- trigonometric.moment(circdat, p=4, center=TRUE)
-      bbar2 <- t2bar$sin ; abar2 <- t2bar$cos
-      abar3 <- t3bar$cos; abar4 <- t4bar$cos
-      var <- ((1-abar4)/2 - (2*abar2) + (2*abar2/Rbar) * (abar3+(abar2*(1-abar2)/Rbar)))/n
-      absz <- abs(bbar2/sqrt(var)) ; return(absz)
-    }
-      
-   # create loop to run test for each release hour
-    Relhrfac = sort(unique(as.numeric(as.character(fl.df3$Rel.hrDayfac))))
-    result_table = data.frame(Relhrfac, teststat = rep(NA,length(Relhrfac)), pval = rep(NA,length(Relhrfac)))
-    for(i in 1:length(Relhrfac))  
-     { circ_i = suppressWarnings(as.circular(fl.df3$F.rad[fl.df3$Rel.hrDayfac==Relhrfac[i]], 
-                                             template="clock24", rotation="clock"))
-     
-     
-     #### this template=clock24 and rotation=clock may pose a problem; I'm not sure if it's true, but if it is we need to convert it to radians measured counter clockwise from zero, which I think is the x axis...and I think we've got radians measured clockwise from the top of the unit circle. Clarify all this before moving too far ####
-     
-     
-     
-       absz <- RSTestStat(circ_i)
-       pval <- 2*pnorm(absz, mean=0, sd=1, lower=FALSE)
-       result_table[result_table$Relhrfac==Relhrfac[i],"teststat"] <- absz
-       result_table[result_table$Relhrfac==Relhrfac[i],"pval"] <- pval
-    }
-
-    result_table
-```   
-- NOTE: this uses template=clock24 and rotation=clock which may pose a problem; The functions may be expecting radians measured _counter-clockwise_ from zero (in mathematic terms, so zero = _positive X-axis_). Here I use radians measured _clockwise_ from the _top of the unit circle_. Before moving along or using these values, clarify this.
-- Aside from that concern, the results are mixed -> releases at 15:00 (rel2), 21:00 (rel2) and 23:00 (re11) are not statistically symmetrical, but the release at 17:00 (rel1) is, dispite not resembling a normal distribution but rather being bimodal. Interesting. Not sure if any of this will be used in a report, so I'm not pursuing it at this moment. 
-
-
-
 ## Is the delay in arrival time related to release time?
 I tried to use the guidance in Pewsey 2013 textbook to fit a cosine regression model, but the data on delay time are too skewed for it to fit the assumptions. Additionally, I'm not sure it's clear what the model will tell you because the release time is split into two predictor variables - in this case neither are significant, and the model doesn't particularly look nice. 
 
@@ -346,18 +327,18 @@ Regardless, I'm also not sure if time sunk into this exercise is valuable, so it
 ### Basic cosine model:
 ```{r}     
    # calculate a circular correlation as first pass at this relationship
-   circadian.linear.cor(fl.df3$Delay.hr, fl.df3$Rel.hrDay)  
+   circadian.linear.cor(fl.df2$Delay.hr, fl.df2$Rel.hrDay)  
    
    # Next step: regression of a linear response on a circular predictor
    # basic cosine model: x = a + b1*cos(2pi/24*Rel.hr*Day) + b2*sin(2pi/12*Rel.hrDay) + e
    omega = 2*pi/24
-   cosvar = cos(omega*fl.df3$Rel.hrDay)
-   sinvar = sin(omega*fl.df3$Rel.hrDay)
+   cosrelhr = cos(omega*fl.df2$Rel.hrDay)
+   sinrelhr = sin(omega*fl.df2$Rel.hrDay)
    
-   delaymod = lm(fl.df3$Delay.hr ~ cosvar + sinvar)
+   delaymod = lm(fl.df2$Delay.hr ~ cosrelhr + sinrelhr + factor(fl.df2$RelEv))
    summary(delaymod)
    
-   plot(fl.df3$Rel.hrDay, fl.df3$Delay.hr, 
+   plot(fl.df2$Rel.hrDay, fl.df2$Delay.hr, 
         xlab="Release time (hours of day)", 
         ylab="Transit time from release to array", 
         main="Regression (circular statistics) of release time vs transit time",
@@ -372,71 +353,16 @@ Regardless, I'm also not sure if time sunk into this exercise is valuable, so it
         xlab="Predicted value", ylab="Studentized residual", pch=16)
    shapiro.test(delayresid)                    # residuals not normal
    qqnorm(delayresid); qqline(delayresid)      # residuals not normal
-   bartlett.test(delayresid, fl.df3$Rel.hrDay) # residuals heteroscedastic  
-   fligner.test(delayresid, fl.df3$Rel.hrDay)  # residuals heteroscedastic  
+   bartlett.test(delayresid, fl.df2$Rel.hrDay) # residuals heteroscedastic  
+   fligner.test(delayresid, fl.df2$Rel.hrDay)  # residuals heteroscedastic  
 ```
 Doesn't meet assumptions, due to outliers with long delay times. But is it close enough?
-   
-### Extended cosine model (additional sin & cos parameters):
-```{r, echo=FALSE}
-   cos2var = cos(2*omega*fl.df3$Rel.hrDay)
-   sin2var = sin(2*omega*fl.df3$Rel.hrDay)
-   delay2mod = lm(fl.df3$Delay.hr ~ cosvar + sinvar + cos2var + sin2var)
-   summary(delay2mod)
-```
-### Diagnostics of extended cosine model:
-```{r, echo=FALSE}
-   delay2pred = fitted(delay2mod)
-   delay2resid = studres(delay2mod)
-   plot(delay2pred, delay2resid, 
-        xlab="Predicted value", ylab="Studentized residual", pch=16)
-   shapiro.test(delay2resid)                    # residuals not normal
-   qqnorm(delay2resid); qqline(delay2resid)     # residuals not normal
-   bartlett.test(delay2resid, fl.df3$Rel.hrDay) # residuals heteroscedastic  
-   fligner.test(delay2resid, fl.df3$Rel.hrDay)  # residuals heteroscedastic  
-```
-Still doesn't meet assumptions well. Could be due to outliers?
-   
-### Extended cosine model without outliers    
-```{r, echo=FALSE}   
-   # model without longest travel times - arbitrary cut-off of 72 hours (3days)
-   fl.df4 = fl.df3[fl.df3$Delay.hr<72,]
-   
-   cosvar = cos(omega*fl.df4$Rel.hrDay)
-   sinvar = sin(omega*fl.df4$Rel.hrDay)
-   sin2var = sin(2*omega*fl.df4$Rel.hrDay)
-   cos2var = cos(2*omega*fl.df4$Rel.hrDay)
-   
-   delay4mod = lm(fl.df4$Delay.hr ~ cosvar + sinvar + cos2var + sin2var)
-    summary(delay4mod)
-   delay4mod = lm(fl.df4$Delay.hr ~ sinvar + sin2var)
-    summary(delay4mod)
-    
-   plot(fl.df4$Rel.hrDay, fl.df4$Delay.hr, 
-        xlab="Release time (hours of day)", 
-        ylab="Transit time from release to array", 
-        main="Regression (circular statistics) of release time vs transit time\nomitted top 12 delay times (>72hrs)",
-        pch=16, ylim=c(25,100),
-        lines(predict(delay4mod), lwd=2, col="red") )
-```
-### Diagnostics of extended cosine model, no outliers:
-```{r, echo=FALSE}
-   delay4pred = fitted(delay4mod)
-   delay4resid = studres(delay4mod)
-   plot(delay4pred, delay4resid, 
-        xlab="Predicted value", ylab="Studentized residual", pch=16)
-   shapiro.test(delay4resid)                    # residuals not normal
-   qqnorm(delay4resid); qqline(delay4resid)     # residuals not normal
-   bartlett.test(delay4resid, fl.df4$Rel.hrDay) # residuals heteroscedastic  
-   fligner.test(delay4resid, fl.df4$Rel.hrDay)  # residuals heteroscedastic  
-```
-STILL doesn't meet assumptions well. =/
-   
-### So, if we can't use the linear modeling approach, what CAN we use to answer this question? Moving on for now. 
-   
+
+__________________________
 
 
-## Is there a relationshp between transit time and river stage?
+
+# Is there a relationshp between transit time and river stage?
 - this code tries to use linear regression, but both the delay times and the stage measurements are dreadfully non-normal. Need to find another test, if we'd like to use a statistical test. Again, leaving this incomplete until I know if it will be of interest.
 ```{r, echo=FALSE}
  # SacRiver Stage - pulled from CDEC - ask for QAQC data from DWR if this seems okay 
@@ -451,29 +377,29 @@ STILL doesn't meet assumptions well. =/
     frestg$stageid = rownames(frestg)
 
   # merge onto position dataset
-   fl.df3 = fl.df3[order(fl.df3$datetime.Rel),]
+   fl.df2 = fl.df2[order(fl.df2$datetime.Rel),]
 
     # magic step to merge regular stage measurements with irregular fish positions
     # (thanks stack exchange!)
-  fl.df3$cdecStgIndex <- 
-     findInterval(fl.df3$datetime.Rel, 
+  fl.df2$cdecStgIndex <- 
+     findInterval(fl.df2$datetime.Rel, 
                     c(-Inf, head(frestg$datetimeUTC,-1))+
                     c(0,diff(as.numeric(frestg$datetimeUTC))/2 )) 
 
-  fl.df3 = merge(fl.df3, frestg[,c("stage_ft", "datetimeUTC","stageid")], 
+  fl.df2 = merge(fl.df2, frestg[,c("stage_ft", "datetimeUTC","stageid")], 
                   by.y="stageid", by.x="cdecStgIndex", all.x=T)
-  fl.df3$cdecStgIndex = NULL
+  fl.df2$cdecStgIndex = NULL
     
   ### This linear model does not meet the assumptions ###
-  plot(fl.df3$Delay.hr ~ fl.df3$stage_ft)
-   abline(lm(fl.df3$Delay.hr ~ fl.df3$stage_ft), col="steelblue")
-   summary(lm(fl.df3$Delay.hr ~ fl.df3$stage_ft))
+  plot(fl.df2$Delay.hr ~ fl.df2$stage_ft)
+   abline(lm(fl.df2$Delay.hr ~ fl.df2$stage_ft), col="steelblue")
+   summary(lm(fl.df2$Delay.hr ~ fl.df2$stage_ft))
 ```
 ### At higher stages fish actually took longer. Is this driven by the heavy outliers?
 
 - Use the reduced dataset from above without the longest 12 travel times (>72)
 ```{r}
-    fl.df4 = fl.df3[fl.df3$Delay.hr<72,]
+    fl.df4 = fl.df2[fl.df2$Delay.hr<72,]
    
      plot(fl.df4$Delay.hr ~ fl.df4$stage_ft)
      stgmod = lm(fl.df4$Delay.hr ~ fl.df4$stage_ft)
@@ -500,6 +426,120 @@ plot(fl.df4$Delay.hr ~ fl.df4$stage_ft)
 plot(fl.df4$Delay.hr ~ fl.df4$Rel.hrDay)
      
 ```
+
+_________
+
+
+# Messier Circular Statistics:
+
+
+   
+### Extended cosine model (additional sin & cos parameters):
+```{r, echo=FALSE}
+   cos2var = cos(2*omega*fl.df2$Rel.hrDay)
+   sin2var = sin(2*omega*fl.df2$Rel.hrDay)
+   delay2mod = lm(fl.df2$Delay.hr ~ cosrelhr + sinrelhr + cos2var + sin2var + factor(fl.df2$RelEv))
+   summary(delay2mod)
+```
+### Diagnostics of extended cosine model:
+```{r, echo=FALSE}
+   delay2pred = fitted(delay2mod)
+   delay2resid = studres(delay2mod)
+   plot(delay2pred, delay2resid, 
+        xlab="Predicted value", ylab="Studentized residual", pch=16)
+   shapiro.test(delay2resid)                    # residuals not normal
+   qqnorm(delay2resid); qqline(delay2resid)     # residuals not normal
+   bartlett.test(delay2resid, fl.df2$Rel.hrDay) # residuals heteroscedastic  
+   fligner.test(delay2resid, fl.df2$Rel.hrDay)  # residuals heteroscedastic  
+```
+Still doesn't meet assumptions well. Could be due to outliers?
+   
+### Extended cosine model without outliers    
+```{r, echo=FALSE}   
+   # model without longest travel times - arbitrary cut-off of 72 hours (3days)
+   fl.df4 = fl.df2[fl.df2$Delay.hr<72,]
+   
+   cosvar = cos(omega*fl.df4$Rel.hrDay)
+   sinvar = sin(omega*fl.df4$Rel.hrDay)
+   sin2var = sin(2*omega*fl.df4$Rel.hrDay)
+   cos2var = cos(2*omega*fl.df4$Rel.hrDay)
+   
+   delay4mod = lm(fl.df4$Delay.hr ~ cosvar + sinvar + cos2var + sin2var + factor(fl.df4$RelEv))
+    summary(delay4mod)
+   delay4mod = lm(fl.df4$Delay.hr ~ sinvar + cosvar + factor(fl.df4$RelEv))
+    summary(delay4mod)
+    
+   plot(fl.df4$Rel.hrDay, fl.df4$Delay.hr, 
+        xlab="Release time (hours of day)", 
+        ylab="Transit time from release to array", 
+        main="Regression (circular statistics) of release time vs transit time\nomitted top 12 delay times (>72hrs)",
+        pch=16, ylim=c(25,100),
+        lines(predict(delay4mod), lwd=2, col="red") )
+```
+### Diagnostics of extended cosine model, no outliers:
+```{r, echo=FALSE}
+   delay4pred = fitted(delay4mod)
+   delay4resid = studres(delay4mod)
+   plot(delay4pred, delay4resid, 
+        xlab="Predicted value", ylab="Studentized residual", pch=16)
+   shapiro.test(delay4resid)                    # residuals not normal
+   qqnorm(delay4resid); qqline(delay4resid)     # residuals not normal
+   bartlett.test(delay4resid, fl.df4$Rel.hrDay) # residuals heteroscedastic  
+   fligner.test(delay4resid, fl.df4$Rel.hrDay)  # residuals heteroscedastic  
+```
+STILL doesn't meet assumptions well. =/
+   
+### So, if we can't use the linear modeling approach, what CAN we use to answer this question? Moving on for now. No insight.
+   
+## The following are derived from the test statistics I ran for 2015 to compare runs
+- Much/all of the following was coded with guidance from the text book "Circular Statitics in R' by Arthur Pewsey et al (2013)
+
+To select an appropriate statistical distrubition for the circular data we want to know if the data are symetrical (we know they are not uniform from looking at the plots, so won't bother to test this statistically, for now). If we do not reject symmetry, we may use the Jones-Pewsey or vonMises distributions, but if we do reject symmetry we may need to use the more flexible Batschelet distribution. 
+
+### Test for 'reflective symmetry' 
+We can use he test proposed by Pewsey (2002) which is suitable for sapmle sizes of 50 or more (ours are n=51 - 56 in each release hour)
+```{r, echo=FALSE}
+    # calculate the 'angle' and corresponding radians for arrival on a 24 hour clock
+   fl.df2$F.angle = 360*fl.df2$F.hrDay / 24
+   fl.df2$F.rad = rad(fl.df2$F.angle)
+
+   # read in function from Pewsey 2013 text; circdat is a circular data object in radians
+    RSTestStat = function(circdat) {    
+      n <- length(circdat) ; Rbar <- rho.circular(circdat)
+      t2bar <- trigonometric.moment(circdat, p=2, center=TRUE)
+      t3bar <- trigonometric.moment(circdat, p=3, center=TRUE)
+      t4bar <- trigonometric.moment(circdat, p=4, center=TRUE)
+      bbar2 <- t2bar$sin ; abar2 <- t2bar$cos
+      abar3 <- t3bar$cos; abar4 <- t4bar$cos
+      var <- ((1-abar4)/2 - (2*abar2) + (2*abar2/Rbar) * (abar3+(abar2*(1-abar2)/Rbar)))/n
+      absz <- abs(bbar2/sqrt(var)) ; return(absz)
+    }
+      
+   # create loop to run test for each release hour
+    Relhrfac = sort(unique(as.numeric(as.character(fl.df2$Rel.hrDayfac))))
+    result_table = data.frame(Relhrfac, teststat = rep(NA,length(Relhrfac)), pval = rep(NA,length(Relhrfac)))
+    for(i in 1:length(Relhrfac))  
+     { circ_i = suppressWarnings(as.circular(fl.df2$F.rad[fl.df2$Rel.hrDayfac==Relhrfac[i]], 
+                                             template="clock24", rotation="clock"))
+     
+     
+     #### this template=clock24 and rotation=clock may pose a problem; I'm not sure if it's true, but if it is we need to convert it to radians measured counter clockwise from zero, which I think is the x axis...and I think we've got radians measured clockwise from the top of the unit circle. Clarify all this before moving too far ####
+     
+     
+     
+       absz <- RSTestStat(circ_i)
+       pval <- 2*pnorm(absz, mean=0, sd=1, lower=FALSE)
+       result_table[result_table$Relhrfac==Relhrfac[i],"teststat"] <- absz
+       result_table[result_table$Relhrfac==Relhrfac[i],"pval"] <- pval
+    }
+
+    result_table
+```   
+- NOTE: this uses template=clock24 and rotation=clock which may pose a problem; The functions may be expecting radians measured _counter-clockwise_ from zero (in mathematic terms, so zero = _positive X-axis_). Here I use radians measured _clockwise_ from the _top of the unit circle_. Before moving along or using these values, clarify this.
+- Aside from that concern, the results are mixed -> releases at 15:00 (rel2), 21:00 (rel2) and 23:00 (re11) are not statistically symmetrical, but the release at 17:00 (rel1) is, dispite not resembling a normal distribution but rather being bimodal. Interesting. Not sure if any of this will be used in a report, so I'm not pursuing it at this moment. 
+
+
+
 
 ## Hm. 
 ### From looking at the plots and the models that violate assumptions, the big picture that emerges is that the fish take ~40 hours to transit the 55.1 km between the release and the array, and this doesn't change too dramatically by the time of day they enter the river. But there does seem to be some sort of a trend between stage and transit time. The spread of fishes also changes with time of day, although there is no clear directional trend. So, time of day is less important than discharge, and the influence of time of day may be small enough to disregard or categorical and therefore we might be able to justify combining the fish from release 1 and release 2 to analyze together. We will increase our variability overall, but it might be something we can control for in a mixed-effects model down the line. 

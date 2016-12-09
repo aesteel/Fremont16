@@ -65,12 +65,12 @@ In 2015 the grid was automated to 10.03m squares, with a smoothing parameter h=3
      coordinates(red8.grp) <- xytsp 
      proj4string(red8.grp) <- CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
 
-    #kud16.lscv = kernelUD(red8.grp[,1], h="LSCV", kern="bivnorm", extent=0.1)
+    #kud16.lscv_g10 = kernelUD(red8.grp[,1], h="LSCV", kern="bivnorm", extent=0.1, grid=grid10)
        # computationally intensive, and won't converge (ie: select h) with or without grid as 10x10, also tried , hlim=c(0.05, .5))  
     # saveRDS(kud16.lscv, "Maestros/kud16_lscv.RData")
      
-     kud16.lscv.old = readRDS("Maestros/kud16_lscv.RData") # has grid of 10.3 x 10.3  -  don't know why this ran previously but now it won't. =/
-      print(paste0("smoothing parameter h, lscv; 2016-LFC = ",round(kud16.lscv.old$LFC@h$h,3)))
+     kud16.lscv = readRDS("Maestros/kud16_lscv.RData") 
+      print(paste0("smoothing parameter h, lscv; 2016-LFC = ",round(kud16.lscv$LFC@h$h,3)))
 
     # windows()
     #   plotLSCV(kud16.lscv)
@@ -82,13 +82,13 @@ In 2015 the grid was automated to 10.03m squares, with a smoothing parameter h=3
 ```
 
 ```{r, echo=FALSE, fig.width=7, fig.height=10}        
-     vud16.lscv <- getvolumeUD(kud16.lscv.old)
+     vud16.lscv <- getvolumeUD(kud16.lscv)
      vud16.href <- getvolumeUD(kud16.href)
      vud16.h15 <- getvolumeUD(kud16.h15) 
 
 #  windows(width=10, height=3); 
       par(mfrow=c(1,3))
-     image(vud16.lscv[[1]], col=heat.colors(12), main="LFC-old 2016; h=LSCV")
+     image(vud16.lscv[[1]], col=heat.colors(12), main="LFC 2016; h=LSCV")
      xyz.lscv <- as.image.SpatialGridDataFrame(vud16.lscv[[1]])
       contour(xyz.lscv, add=TRUE, nlevels=6, drawlabels=FALSE)  
      image(vud16.href[[1]], col=heat.colors(12), main="LFC 2016; h=HREF")

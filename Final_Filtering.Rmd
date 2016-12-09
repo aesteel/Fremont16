@@ -63,7 +63,8 @@ library(adehabitatLT)
   
   alldf.utm = alldf.utm@data   
 ```
-```{r, echo=FALSE}
+
+```{r Fig 8, echo=FALSE}
  # N fish & total N positions
  print(paste0("Prior to filtering, ",nrow(alldf)," total positions in dataset"))
  print(paste0("Prior to filtering, ",length(unique(alldf$Id))," individual fish positioned"))
@@ -74,13 +75,22 @@ library(adehabitatLT)
    summarize(npos.all=n())%>%
    data.frame()
 
+   nposplot = ggplot(all.npf, aes(x=npos.all)) + 
+     geom_histogram(binwidth=50, fill="grey90", colour="black") +
+     xlab("N Positions") + ggtitle("Unfiltered: Positions per fish") +  xlim(0,1000)
+   nposplot
+ 
+  png("Graphics/Fig8_Npos_prefilt.png", width=4, height=4, units="in", res=600)
+   nposplot
+  dev.off()
+  
   print("Summary of N positions per fish, after reducing to applicable data")
   summary(all.npf$npos.all)
 ```
 
-## Primary HPE filter: <1.0 HPEs
-```{r echo=FALSE}
- reddf = alldfg[alldfg$Hpes < 1,]
+## Primary HPE filter: <0.5 HPEs
+```{r hpe 0.5 filt, echo=FALSE}
+ reddf = alldfg[alldfg$Hpes < 0.5,]
   
   # N fish & total N positions
    print(paste0(nrow(reddf)," positions")) 
@@ -95,12 +105,71 @@ library(adehabitatLT)
    summarize(npos.red= n()) %>%
    data.frame()
   
-  print("Summary of N positions per fish, after filtering at HPE<1")
+  print("Summary of N positions per fish, after filtering at HPE<0.5")
   summary(red.npf$npos.red)   
 
 ```
 
+## create plots of spatial errors, original, rejected, and retained
+```{r Fig 9, echo=FALSE}
+# read in the river channel and project properly
+  riverbank = readOGR(dsn="GIS/2004_channel", layer="2004_channel_freTightclipWGS84")
+     # convert to be useful in ggplot; still not sure what this actually does       
+      ggriverbank <- fortify(riverbank, region="BYDEL")
+  
+    # create the constant theme and plots      
+    roundfunc <- function(l) { (l <- round(l, 3))}  
+    commonTheme = list(labs(color="Density",fill="Density",
+                x="Longitude", y="Latitude"),
+           theme_bw(),
+           theme(legend.position=c(0,1),
+                 legend.justification=c(0,1)))
+    
+      alldfg.hpe = alldfg[order(alldfg$Hpes),]
+      points.all = ggplot(data=alldfg.hpe[alldfg.hpe$Hpes<50,], aes(x=Longitude, y=Latitude)) +
+            geom_point(aes(color=Hpes)) + scale_color_viridis() +
+            coord_fixed(ratio=1) + 
+            geom_path(data = ggriverbank, aes(long, lat, group=group)) +
+            scale_y_continuous(label=roundfunc) +  
+            scale_x_continuous(label=roundfunc) + 
+            commonTheme + labs(color="HPEs")
 
+     
+      ptdens.keep =  ggplot(data=alldfg[alldfg$Hpes<0.5,], 
+                              aes(x=Longitude,y=Latitude)) + 
+            geom_point(alpha=.1, color="grey80") + 
+            stat_density2d(aes(fill=..level..,alpha=..level..), 
+                           geom='polygon',colour='black') + 
+            scale_fill_continuous(low="white",high="blue") +
+            guides(alpha="none") + coord_fixed(ratio=1) + 
+            geom_path(data = ggriverbank, aes(long, lat, group=group)) +
+            scale_y_continuous(label=roundfunc) +  
+            scale_x_continuous(label=roundfunc) + 
+            commonTheme + guides(fill=FALSE)
+
+        ptdens.remove =  ggplot(data=alldfg[alldfg$Hpes>=0.5 & alldf$Hpes<500,], 
+                                aes(Longitude,Latitude)) + 
+            geom_point(alpha=.1, color="grey80") + 
+            stat_density2d(aes(fill=..level..,alpha=..level..), 
+                           geom='polygon',colour='black') + 
+            scale_fill_continuous(low="white",high="red") +
+            guides(alpha="none") + coord_fixed(ratio=1) + 
+            geom_path(data = ggriverbank, aes(long, lat, group=group)) +
+            scale_y_continuous(label=roundfunc, limits=range(ggriverbank$lat)) +  
+            scale_x_continuous(label=roundfunc, limits=range(ggriverbank$long)) +
+            commonTheme + guides(fill=FALSE)
+        
+        # print plots in proper grid
+    plot_grid(ptdens.remove, ptdens.keep, labels = c("A", "B"), ncol=1, align="v")
+    
+    png("Graphics/Figure9_HPE_Spatial_Distn.png", width=8, height=6, units="in", res=600)
+     ggdraw() +
+       draw_plot(points.all, x=0, y=0,width=0.6, height=1) +
+       draw_plot(ptdens.remove, x=0.62, y=0.5,width=0.38, height=0.5) +
+       draw_plot(ptdens.keep,   x=0.62, y=0,  width=0.38, height=0.5) + 
+       draw_plot_label(c("A", "B", "C"), x = c(0,.62,.62), y = c(1,1,0.5), hjust=-0.5, vjust=1, size=15)
+      dev.off()
+```    
 ```{r}
   save(reddf, file="Maestros/AllFishPrimaryFilt.RData")
 ```
@@ -192,7 +261,7 @@ red5.ltraj <- cutltraj(red4.ltraj, "dtcut(dt)", nextr=TRUE)
 
 red5 = ld(red5.ltraj)
 
-red5 = red5[!(red5$burst %in% c(36472.3, 36472.4, 36612.2, 36612.3)),]
+red5 = red5[!(red5$burst %in% c(36472.2, 36472.3, 36472.4, 36612.2, 36612.3)),]
 
 save(red5, file="Maestros/AllFish_FiltSec2Pred.RData")
 ```
@@ -230,7 +299,7 @@ save(red6, file="Maestros/AllFish_FiltSec3Hold.RData")
     print(paste0("   ",round((length(unique(red6$Id))/length(unique(alldf$Id)))*100,1),"% of individual fish retained "))
    
    
-  # N pos per fish after HPE filtering
+  # N pos per fish after removed suspiscious fish
   red6.npf = red6 %>%
    group_by(Id) %>%
    summarize(npos.red6= n()) %>%
@@ -242,22 +311,31 @@ save(red6, file="Maestros/AllFish_FiltSec3Hold.RData")
 ```
 
 ## Cut tracks into sub-bursts when gaps are > a selected threshold to avoid interpolating over long distances
+#### These tracks will not be used for spatial aggregation, only for speed and turning angle analyses. 
 - For now I've used 50m gaps until I make time to evaluate this more deeply.
-- This results in a few sub-bursts that retain <4 positions; these are automatically dropped by adehabitatLT (a total of 103 positions)
-- Reference bac to final few code chunks in "Exploration_TrackGapBias" for more details on how to select this threshold.
+- This results in a few sub-bursts that retain <4 positions; these are automatically dropped by adehabitatLT (a total of 166 positions)
+- Reference back to final few code chunks in "Exploration_TrackGapBias" for more details on how to select this threshold.
 ``` {r, warning=FALSE}
 dist_threshold = 50
-gapcut = function(dist) { return (dist > dist_threshold) } 
+distcut = function(dist) { return (dist > dist_threshold) } 
 
 red6.ltraj = as.ltraj(xy=red6[,c("east","north")], date = red6$date, id = red6$Id, infolocs=red6[,c("Hpes","east","north")])
-red7.ltraj <- cutltraj(red6.ltraj, "gapcut(dist)", nextr=TRUE)
+red7.ltraj <- cutltraj(red6.ltraj, "distcut(dist)", nextr=TRUE)
 
 red7 = ld(red7.ltraj)
   red7$spd_mps = red7$dist / red7$dt
   
+ # N fish & total N positions
+   print(paste0(nrow(red7)," positions")) 
+    print(paste0("   ",round(nrow(red7)/nrow(alldfg)*100,2), "% of fish tag positions"))  
+   print(paste0(length(unique(red7$Id))," individual fish"))  
+    print(paste0("   ",round((length(unique(red7$id))/length(unique(alldf$Id)))*100,1),"% of individual fish retained "))  
+  
 save(red7, file="Maestros/AllFish_FiltSec4Bursts.RData")
 ```
- 
+
+
+
 ## Plot of pre- & post-filtering positions 
 ```{r, echo=FALSE, warning=FALSE, fig.height=8, fig.width=10}
  river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
@@ -278,5 +356,43 @@ post.plot <- ggplot(data = red7, aes(x=east, y=north, colour=Hpes)) + geom_point
 par(mar=c(5.1,4.1,4.1,3.1))
 plot_grid(pre.plot, post.plot, nrow=2)
 
+png("Graphics/Fig9_SpatialError_pt2.png", width=5, height=9)
+ plot_grid(pre.plot, post.plot, nrow=2)
+dev.off()
+
+
 ```
+
+
+
+## Remove tracks with >150 m gaps to avoid interpolating over long distances
+#### These tracks will ONLY be used for spatial aggregation purposes (temp gaps redisc)
+- For now I've used 50m gaps until I make time to evaluate this more deeply.
+- This results in a few sub-bursts that retain <4 positions; these are automatically dropped by adehabitatLT (a total of 166 positions)
+- Reference back to final few code chunks in "Exploration_TrackGapBias" for more details on how to select this threshold.
+``` {r, warning=FALSE}
+gap_threshold = 150
+#gapcut = function(gap) { return (gap > gap_threshold) } 
+
+red6.ltraj = as.ltraj(xy=red6[,c("east","north")], date = red6$date, id = red6$Id, infolocs=red6[,c("Hpes","east","north")])
+
+ red8 = ld(red6.ltraj)
+ 
+ # look at where 150 is in the histogram and ecdf, and consider other thresholds
+ hist(red8$dt, xlim=c(0,500), ylim=c(0,450), breaks=100)
+  abline(v=95, col="red")
+  abline(v=150, col="red")
+ plot(sort(red8$dt), (1:sum(!is.na(red8$dt)))/sum(!is.na(red8$dt)), type="s")
+  abline(v=15, col="red")
+  abline(v=150, col="red")
+  abline(v=90, col="red")
+     # other thresholds might be better, but because we used 150 in 2015 we'll stick with that to make the analyses comparable...
+  
+  longgaps = red8[red8$dt>=gap_threshold,]; longgaps = longgaps[!is.na(longgaps$id),]
+   gapids = unique(longgaps$id) #56 tags (13% of 430 tags detected in rel 1 & 2
+    
+  red9 = red8[!(red8$id %in% gapids),]
+  
+save(red9, file="Maestros/AllFish_FiltSec5Gaps.RData")
+``` 
 

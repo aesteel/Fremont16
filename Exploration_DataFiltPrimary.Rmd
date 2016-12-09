@@ -2,7 +2,7 @@
 title: "Exploration for Data Filtering HPE"
 author: "Anna Steel"
 date: "August 10, 2016"
-output: html_document
+output: pdf_document
 ---
 
 ```{r, include=FALSE} 
@@ -58,6 +58,7 @@ alldfg.utm <- spTransform(alldfg.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units
 ```
 
 ***
+
 
 ### Explore HPEs relationship with measured error for sync and reference tags 
 - Only positions with Hpes<1000
@@ -134,22 +135,23 @@ alldfg.utm <- spTransform(alldfg.sp, CRS("+proj=utm +zone=10 +datum=WGS84 +units
       draw_plot_label(c("A","B"),c(0,0), c(.95,.20), size=12)
     dev.off()
     
-    print(paste0("At threshold of HPEs<1, mean measured error (m) of sync/ref positions = ",round(mean(allsync.calib$error_m[allsync.calib$Hpes<1]),2)))
-    print(paste0("At threshold of HPEs<1, median measured error (m) of sync/ref positions = ",round(median(allsync.calib$error_m[allsync.calib$Hpes<1]),2)))
-    print(paste0("At threshold of HPEs<1, 90%ile of measured error (m) of sync/ref positions = ",round(quantile(allsync.calib$error_m[allsync.calib$Hpes<1],0.9),2)))
-    print(paste0("At threshold of HPEs<1, ", round(nrow(allsync.calib[allsync.calib$Hpes<1,])/nrow(allsync.calib)*100,2), "% of sync/ref positions retained"))     
+    print(paste0("At threshold of HPEs<0.5, mean measured error (m) of sync/ref positions = ",round(mean(allsync.calib$error_m[allsync.calib$HPEs<0.5]),2)))
+    print(paste0("At threshold of HPEs<0.5, median measured error (m) of sync/ref positions = ",round(median(allsync.calib$error_m[allsync.calib$HPEs<0.5]),2)))
+    print(paste0("At threshold of HPEs<0.5, 90%ile of measured error (m) of sync/ref positions = ",round(quantile(allsync.calib$error_m[allsync.calib$HPEs<0.5],0.9),2)))
+    print(paste0("At threshold of HPEs<0.5, ", round(nrow(allsync.calib[allsync.calib$HPEs<0.5,])/nrow(allsync.calib)*100,2), "% of sync/ref positions retained"))     
 ```    
-Based on these graphics I will use a HPE filtering threshold of HPE=1; this seems to be a nice tradeoff between precision (mean ~ 5m in HPE bin 0.75-1) and quantity of data (~80% of data retained). 
-
+Based on these graphics I will use a HPE filtering threshold of HPE=0.5
+- In the Fremont 2015 report we used an HPE of 0.5: this retained 52.8% of the positions, with a median of 144 detections per fish. Vemco estimated that this threshold (in 2015) resulted in 50% fish positions had error less than 1.21m, while 95% of positions had error <4.17m (90%ile was 2.84m).
+- The vemco reports for 2016 release 1&2, at HPE<0.5, show 68% of fish positions were retained, and 50% had errors < 1.57m while 95% had errors < 4.62. This is more comparable to 2015 HPE<0.5 (50% = 1.68, 95% = 5.86). 
 ***
+
 
 ### Spatial distribution of HPEs in fish positions (Similiar to Fig 9 in 2015 report)
 - Eventually will add river line to these plots but needs more research to do in ggplot
 ``` {r, echo=FALSE, warnings=FALSE, fig.height=9}
-  # Fig 9, similar  
   nHighHpe <- nrow(alldfg[alldfg$Hpes>=5,])
-  nLowHpe <- nrow(alldfg[alldfg$Hpes<5 & alldfg$Hpes>=1,])
-  nKeepHpe <- nrow(alldfg[alldfg$Hpes<1,])
+  nLowHpe <- nrow(alldfg[alldfg$Hpes<5 & alldfg$Hpes>=0.5,])
+  nKeepHpe <- nrow(alldfg[alldfg$Hpes<0.5,])
   
   percHigh <-(nHighHpe/(nLowHpe+nHighHpe+nKeepHpe))*100
   percLow <-(nLowHpe/(nLowHpe+nHighHpe+nKeepHpe))*100
@@ -170,7 +172,7 @@ Based on these graphics I will use a HPE filtering threshold of HPE=1; this seem
       coord_fixed() + 
       theme_bw() + theme(title=element_text(vjust=2), axis.title.x=element_text(vjust=-.5),axis.title.y=element_text(vjust=1))
 
-    lowhpe = ggplot(alldfg[alldfg$Hpes<5 & alldfg$Hpes>=1,], aes(y=Latitude, x=Longitude)) + 
+    lowhpe = ggplot(alldfg[alldfg$Hpes<5 & alldfg$Hpes>=0.5,], aes(y=Latitude, x=Longitude)) + 
       geom_point(aes(colour=Hpes), size=1.5) + 
       geom_path(data = ggriverbank, aes(long, lat, group=group)) +
       scale_colour_gradient2(name="HPEs", low = "green3", mid="yellow", high = "red", midpoint=3, space = "rgb", na.value = "grey50", guide = "colourbar") +
@@ -180,7 +182,7 @@ Based on these graphics I will use a HPE filtering threshold of HPE=1; this seem
       coord_fixed() + 
       theme_bw() + theme(title=element_text(vjust=2), axis.title.x=element_text(vjust=-.5),axis.title.y=element_text(vjust=1))
     
-    keephpe = ggplot(alldfg[alldfg$Hpes<1,], aes(y=Latitude, x=Longitude)) +
+    keephpe = ggplot(alldfg[alldfg$Hpes<0.5,], aes(y=Latitude, x=Longitude)) +
       geom_point(aes(colour=Hpes), size=1.5) + 
       geom_path(data = ggriverbank, aes(long, lat, group=group)) +
       scale_colour_gradient2(name="HPEs", low = "green3", mid="yellow", high = "red", midpoint=.8, space = "rgb", na.value = "grey50", guide = "colourbar") +
@@ -190,9 +192,8 @@ Based on these graphics I will use a HPE filtering threshold of HPE=1; this seem
       coord_fixed() + 
       theme_bw() + theme(title=element_text(vjust=2), axis.title.x=element_text(vjust=-.5),axis.title.y=element_text(vjust=1))
     
-    png("Graphics/Figure9_HPE_Spatial_Distn.png", width=6, height=9, units="in", res=600)
      plot_grid(highhpe, lowhpe, keephpe, nrow=3, ncol=1)
-    dev.off()
+
 ```
 
 
@@ -238,17 +239,21 @@ Based on these graphics I will use a HPE filtering threshold of HPE=1; this seem
                                limits=range(ggriverbank$long)) +
             commonTheme
         
-        # print plots in propwer grid
-        windows()
-        plot_grid(ptdens.remove, ptdens.keep, labels = c("A", "B"), ncol=1, align="v")
+        # print plots in proper grid
+
+    png("Graphics/Figure9_HPE_Spatial_Distn.png", width=5, height=9, units="in", res=600)
+      plot_grid(ptdens.remove, ptdens.keep, labels = c("A", "B"), ncol=1, align="v")
+    dev.off()
+    
+    
 ```
 
 ###  Implement HPEs threshold in filtering
 - This DOES NOT match the report from VEMCO (they report 106,529 or 87% after filtering to HPE<1)
 - I need to get the tagID metadata from someone; suspect there are tags here that aren't fish tags
 ```{r, echo=FALSE, warnings=FALSE}  
-  reddf = alldfg[alldfg$Hpes < 1,]
-   print("After filtering @ HPEs<1, dataset retained:")
+  reddf = alldfg[alldfg$Hpes < 0.5,]
+   print("After filtering @ HPEs<0.5, dataset retained:")
    print(paste0("  ",nrow(reddf)," positions,")) # 106529
    print(paste0("  ",round(nrow(reddf)/nrow(alldfg)*100,2), "% of fish tag positions"))  # 86.63%
    print(paste0("  ",length(unique(reddf$Id))," individual fish"))  # 433
@@ -256,7 +261,7 @@ Based on these graphics I will use a HPE filtering threshold of HPE=1; this seem
   reddf.sp <- SpatialPointsDataFrame(coords = reddf[,c("Longitude","Latitude")], data = reddf, proj4string=CRS("+proj=aeqd +lat_0=38.759985 +lon_0=-121.666908 +x_0=1000 +y_0=1000 +datum=WGS84"))
    # proj4string directly from VEMCO documentation
   
-  dropdf = alldfg[alldfg$Hpes >=1,]
+  dropdf = alldfg[alldfg$Hpes >=0.5,]
   dropdf.sp <- SpatialPointsDataFrame(coords = dropdf[,c("Longitude","Latitude")], data = dropdf, proj4string=CRS("+proj=aeqd +lat_0=38.759985 +lon_0=-121.666908 +x_0=1000 +y_0=1000 +datum=WGS84"))
    # proj4string directly from VEMCO documentation
  
@@ -291,10 +296,10 @@ Here is an excerpt from VEMCO's results document that is returned with the post-
   ### not in report ###
  par(mfrow=c(2,2))
   hist(alldfg$GoodBasicCount, breaks=25, main="All Positions:\nNumber of Good Basic positions \nper estimated position", xlab="N Good Basic Positions", xlim=c(0,25))
-  hist(reddf$GoodBasicCount, breaks=25, main="Positions HPEs<1:\nNumber of Good Basic positions \nper estimated position", xlab="N Good Basic Positions", xlim=c(0,25))
+  hist(reddf$GoodBasicCount, breaks=25, main="Positions HPEs<0.5:\nNumber of Good Basic positions \nper estimated position", xlab="N Good Basic Positions", xlim=c(0,25))
 
   hist(alldfg$DetectionsCount, breaks=25, main="All Positions:\nNumber of Detections \nper estimated position", xlab="N Detections", xlim=c(0,25))
-  hist(reddf$DetectionsCount, breaks=25, main="Positions HPEs<1:\nNumber of Detections \nper estimated position", xlab="N Detections", xlim=c(0,25))
+  hist(reddf$DetectionsCount, breaks=25, main="Positions HPEs<0.5:\nNumber of Detections \nper estimated position", xlab="N Detections", xlim=c(0,25))
 ```
 
 ### Positions remaining per fish (Figs 8 and 10 in 2015 report)
@@ -311,12 +316,17 @@ Here is an excerpt from VEMCO's results document that is returned with the post-
 
   summary(all.npf$npos.all)
   
-  png("Graphics/Figure8a_HPE_PosPerFish.png", width=6, height=5, units="in", res=600)
+  #png("Graphics/Figure8a_HPE_PosPerFish.png", width=6, height=5, units="in", res=600)
    hist(all.npf$npos.all, xlim=c(0,1000), breaks=250, ylim=c(0,110),
         xlab=c("Number of Positions"), main="Positions recorded per fish\nprior to HPE filtering")  
     text(x=800, y=40, "Removed two individual tags\nw/ > 5000 detections", font=3)
-  dev.off()
-
+  #dev.off()
+  
+  hist(all.npf$npos.all, xlim=c(0,1000), breaks=250, ylim=c(0,110),
+        xlab=c("Number of Positions"), main="Positions recorded per fish\nprior to HPE filtering")  
+    text(x=800, y=40, "Removed two individual tags\nw/ > 5000 detections", font=3)
+  
+    
   outliers.pre = all.npf[all.npf$npos.all %in% sort(boxplot.stats(all.npf$npos.all)$out),]
       
   ggplot(data=alldfg[alldfg$Id %in% outliers.pre$Id,], aes(x=Longitude, y=Latitude)) + geom_point() +
@@ -330,17 +340,18 @@ Here is an excerpt from VEMCO's results document that is returned with the post-
      
   summary(red.npf$npos.red)   
   
-  png("Graphics/Figure8b_HPE_PosPerFish.png", width=6, height=5, units="in", res=600)
+  #png("Graphics/Figure8b_HPE_PosPerFish.png", width=6, height=5, units="in", res=600)
     hist(red.npf$npos.red, xlim=c(0,1000), breaks=100, ylim=c(0,110), 
          xlab=c("Number of Positions"), main="Positions recorded per fish\nafter HPE filtering")  
      text(x=800, y=40, "Removed two individual tags\nw/ > 2000 detections", font=3)
-  dev.off()
+  #dev.off()
   
   outliers.post = red.npf[red.npf$npos.red %in% sort(boxplot.stats(red.npf$npos.red)$out),]
         
   ggplot(data=reddf[reddf$Id %in% outliers.post$Id,], aes(x=Longitude, y=Latitude)) + geom_point() +
-              facet_wrap(~Id, ncol=4) + ggtitle("Tracks for outliers, positions filtered HPEs<1")
+              facet_wrap(~Id, ncol=4) + ggtitle("Tracks for outliers, positions filtered HPEs<0.5")
 ```
+
 ```{r, echo=FALSE, warnings=FALSE}
   # percent of positions remaining per individual fish (Fig 10)
   
@@ -357,12 +368,12 @@ Here is an excerpt from VEMCO's results document that is returned with the post-
           axis.title.x=element_text(vjust=-.5),
           axis.title.y=element_text(vjust=1.2),
           plot.margin=unit(c(1,1,1.25,1), "cm")) +
-    geom_vline(xintercept = 1, col="red", lty=2) + 
-    annotate("text",x=1.1, y=50100, label="HPEs = 1", col="red", adj=0, size=4)
+    geom_vline(xintercept = 0.5, col="red", lty=2) + 
+    annotate("text",x=1.1, y=50100, label="HPEs = 0.5", col="red", adj=0, size=4)
 
  filt.ppf = ggplot(data = comp.npf, aes(npos.red)) + 
     geom_histogram(binwidth=25, col=I("black"), fill="grey95") + 
-    ggtitle("Filtered at HPEs<1:
+    ggtitle("Filtered at HPEs<0.5:
             
 Positions per Fish") +  
     scale_x_continuous(breaks=seq(0,500,100), limits=c(0,500)) + 
@@ -415,7 +426,7 @@ Positions per Fish") +
   # does the track change significantly when the poor Hpes points are removed? No
   poor.pre = ggplot(data=alldfg[alldfg$Id %in% poorHpes$Id,], aes(x=Longitude, y=Latitude)) + geom_point() + 
     facet_wrap(~Id, ncol=4) + ggtitle("'Poor' tracks with no filtering")
-  poor.post = ggplot(data=alldfg[alldfg$Id %in% poorHpes$Id & alldfg$Hpes<1,], aes(x=Longitude, y=Latitude)) + geom_point() + facet_wrap(~Id, ncol=4) + ggtitle("'Poor' tracks filtered at HPEs < 1")
+  poor.post = ggplot(data=alldfg[alldfg$Id %in% poorHpes$Id & alldfg$HPEs<0.5,], aes(x=Longitude, y=Latitude)) + geom_point() + facet_wrap(~Id, ncol=4) + ggtitle("'Poor' tracks filtered at HPEs < 1")
 
   plot_grid(  poor.pre, poor.post, ncol=1, nrow=2)
 ```  

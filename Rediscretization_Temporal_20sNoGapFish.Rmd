@@ -1,0 +1,118 @@
+---
+title: "Rediscretization_Temporal"
+author: "Anna Steel"
+date: "September 6, 2016"
+output: pdf_document
+---
+```{r, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(maptools)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+library(adehabitatHR)
+library(stringr)
+#library(userfriendlyscience)
+
+river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
+
+```
+
+
+## Rediscretization of Tracks - 20 seconds between positions
+- Using primary and secondary filtered data to rediscretize tracks for further analysis
+- Tracks have been split into bursts where successive positions were seperated by > 50m
+* this threshold can be altered in "Final_Filtering.Rmd" if desired
+- Before redistretizing, remove bursts with < 10 positions (too few to rediscretize in adehabitatLT)
+- also note that the interval of 20 seconds was selected to be consistent with the 2015 analysis; another script will discretize at 2 seconds to be more consitent with ELAM outputs and USGS analysis
+
+```{r, echo=FALSE}
+  options(digits=20) #keep 
+  load("Maestros/AllFish_FiltSec5Gaps.RData")  # single object, named red9
+ 
+ dim(red9) # 81895 detections 
+    length(unique(red9$id))  # 374 unique fish
+    length(unique(red9$burst))  # 374 unique bursts
+    
+    ndetects.fish = summarize(group_by(red9, id), ndet = n())  
+      mean(ndetects.fish$ndet) # 203.9 per fish
+      range(ndetects.fish$ndet) # ranges from 22 - 578
+
+```
+
+```{r}
+  red9.ltraj = as.ltraj(xy=red9[,c("east","north")], date=red9$date, 
+                        id=factor(red9$id), burst = factor(red9$burst),
+                        infolocs=red9[,c("Hpes","east","north")])
+```
+
+## Discretize in Time
+```{r}
+  # discretize in time
+  red9.trdz = ld(redisltraj(red9.ltraj, u=20, type="time", nnew=50))
+   red9.trdz$run = "LFC" # creates a common grouping variable to make UD with all points
+   red9.trdz=red9.trdz[order(red9.trdz$id,red9.trdz$date),]
+   
+ # recalculate migration speed  
+   red9.trdz$spd_mps = red9.trdz$dist / red9.trdz$dt
+```
+
+```{r, echo=FALSE}
+ # SacRiver Stage - pulled from CDEC - ask for QAQC data from DWR if this seems okay 
+  frestg = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/FRE_stage_2016study.csv")
+  frestg = frestg[!is.na(frestg$stage_ft),]
+  frestg = frestg[frestg$stage_ft > 5 ,] # some missing values are recorded as 2 or 5; remove these entirely
+   frestg$timePST = str_pad(frestg$timePST, 4, pad = "0")
+   frestg$datetimePST = as.POSIXct(paste(frestg$datePST, frestg$timePST), format="%Y%m%d %H%M", tz="Etc/GMT-8")
+   frestg$datetimeUTC = as.POSIXct(as.character(frestg$datetimePST + (60*60*8)), tz="GMT")
+   frestg = frestg[order(frestg$datetimePST),]
+   frestg$stageid = rownames(frestg)
+  
+ ## merge onto position dataset
+   red9.trdz = red9.trdz[order(red9.trdz$date),]
+
+    # magic step! thanks stack exchange!
+  red9.trdz$cdecStgIndex <- 
+     findInterval( red9.trdz$date, c(-Inf, head(frestg$datetimeUTC,-1))+ c(0,diff(as.numeric(frestg$datetimeUTC))/2 )) 
+
+  red9.trdz = merge( red9.trdz, frestg[,c("stage_ft", "datetimeUTC","stageid")], by.y="stageid", by.x="cdecStgIndex", all.x=T)
+  
+  red9.trdz = red9.trdz[order(red9.trdz$date),]
+
+  
+  # Fish Releases
+   fishrel = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/TaggingDataRelEv.csv", 
+                     colClasses=c("RelTime"="character"))
+    fishrel$RelTime = str_pad(fishrel$RelTime, width=4, side="left", pad="0")
+    fishrel$RelTime = str_pad(fishrel$RelTime, width=6, side="right", pad="0")
+    
+    fishrel$datetime = as.POSIXct(paste(fishrel$RelDate, fishrel$RelTime), format="%Y-%m-%d %H%M%S", tz="Etc/GMT-8")
+    #names(fishrel)[3] <- "id"
+    names(fishrel)[ncol(fishrel)] <- "datetime.Rel"
+     fishrel$RelHr = as.POSIXlt(fishrel$datetime.Rel)$hour
+        
+  red9.trdz = merge(red9.trdz, fishrel, by="id", all.x=T)
+  
+  red9.trdz$cdecStgIndex = NULL
+
+  ## write this to file
+  saveRDS(red9.trdz, "Maestros/RediscTime_20sNoGapFish.RData")
+```
+
+
+
+And finally, output the general metrics about the remaining dataset
+```{r}
+    dim(red9.trdz) # 14466 detections after discretization
+    length(unique(red9.trdz$id))  # 374
+    ndetects.discr = summarize(group_by(red9.trdz, id), ndet = n())  
+      mean(ndetects.discr$ndet) # 38.68 per fish
+      range(ndetects.discr$ndet) # ranges from 15 - 139
+    max(red9.trdz$spd_mps, na.rm=T)  # 4.81 mps
+```
