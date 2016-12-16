@@ -141,7 +141,7 @@ library(adehabitatLT)
             stat_density2d(aes(fill=..level..,alpha=..level..), 
                            geom='polygon',colour='black') + 
             scale_fill_continuous(low="white",high="blue") +
-            guides(alpha="none") + coord_fixed(ratio=1) + 
+            guides(alpha="none") + coord_fixed(ratio=1)  + 
             geom_path(data = ggriverbank, aes(long, lat, group=group)) +
             scale_y_continuous(label=roundfunc) +  
             scale_x_continuous(label=roundfunc) + 

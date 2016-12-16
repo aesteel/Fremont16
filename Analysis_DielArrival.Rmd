@@ -46,8 +46,8 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
     dat$RelHr = as.POSIXlt(dat$datetime.Rel)$hour
     
     dat$grp = NA
-     dat$grp[dat.grp$F.time<as.POSIXct("2016-03-05")] <- 1
-     dat$grp[dat.grp$F.time<as.POSIXct("2016-03-05")] <- 2
+     dat$grp[dat$F.time<as.POSIXct("2016-03-05")] <- 1
+     dat$grp[dat$F.time<as.POSIXct("2016-03-05")] <- 2
 ```
 
 ## Store sunset and sunrise times 
@@ -224,6 +224,8 @@ _____________________________________________________________________________
       ylab("Transit time (hour)") + xlab("Hour of Day of Release") + 
       guides(fill=guide_legend(title="Release\n Event"))
     
+    hrday.relev.box
+    
     hrday.relev.pt =  ggplot(data = fl.df2, aes(x=Rel.hrDay, y=Delay.hr, fill=factor(RelEv))) + 
        annotate("rect", xmin=sunrise, xmax=sunset, ymin=-Inf, ymax=Inf, fill="khaki1",  color="black", alpha=0.2) +
        annotate("rect", xmin=sunset, xmax=24, ymin=-Inf, ymax=Inf ,fill="slategray3", color="black", alpha=0.2) +      
@@ -234,6 +236,7 @@ _____________________________________________________________________________
       ylab("Transit time (hour)") + xlab("Release - Hour of Day") + 
       guides(fill=guide_legend(title="Release\n Event"))
      
+    hrday.relev.pt
         
     hrday.diel =  ggplot(data = fl.df2, aes(x=Rel.hrDayfac, y=Delay.hr, fill=factor(Rel.diel))) + 
       geom_boxplot(outlier.shape=NA) + 
@@ -241,7 +244,8 @@ _____________________________________________________________________________
       ggtitle("Transit between release and array\n(statistical outliers not shown)") + 
       ylab("Transit time (hour)") + xlab("Hour of Day of Release") + 
       guides(fill=guide_legend(title="Hour\n  of\nDay"))
-    plot_grid(hrday.relev, hrday.diel, nrow=2, align="v")
+    
+    hrday.diel    
 ```
 - note: consider creating this second set of boxplots in conjunction with a hydrograph to illustrate relationship between transit time and stage
 

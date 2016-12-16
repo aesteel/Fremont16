@@ -31,7 +31,7 @@ river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","20
 ## Movement Speed (mean spd per track)
 Using the dataset filtered and discretized by time, we'll calculate the mean movement speed per track
 ```{r get data, echo=FALSE}
-  red2 <- readRDS("Maestros/RediscTime_20s.RData")  
+  red2 <- readRDS("Maestros/RediscTime_20sNoGapFish.RData")  
 
    options(digit.secs = 6)
    red2$date = as.POSIXct(red2$date)     
@@ -87,6 +87,14 @@ Using path length and passage time
     pathspd = data.frame(pathspd)
     pathspd$passagetime_s = as.numeric(difftime(pathspd$last, pathspd$first, units="sec"))
     pathspd$mps = pathspd$pathlength_m / pathspd$passagetime_s
+    
+    pathspd$grp = NA
+     pathspd$grp[pathspd$first<as.POSIXct("2016-03-05")] <- 1
+     pathspd$grp[pathspd$first>as.POSIXct("2016-03-05")] <- 2  # moves two fish from relev 1 to grp 2: id=36382 & 36597
+     
+    pathspd$diel = NA
+     pathspd$diel[pathspd$RelHr %in% c(3,5,21,23)] <- "night"
+     pathspd$diel[pathspd$RelHr %in% c(8,10,14,16,17)] <- "day"     
 ```
 
 ## Plot all speeds
@@ -102,27 +110,34 @@ Using path length and passage time
   #windows(5,5); par(mar=c(5,5.5,4,4))
   ggplot(data=pathspd, aes(x=factor(RelHr), y=mps)) + 
     geom_boxplot() + xlab("Hour of Release") + ylab("Ground Speed (mps)")
+  
+  # plot speed by Diel Phase
+  #windows(5,5); par(mar=c(5,5.5,4,4))
+  ggplot(data=pathspd, aes(x=factor(diel), y=mps)) + 
+    geom_boxplot() + xlab("Diel Phase of Release") + ylab("Ground Speed (mps)")
    
-  ## plot speed by RelEv
-  sog.relev = ggplot(data=pathspd, aes(x=factor(RelEv), y=mps)) + 
-    geom_boxplot() + xlab("Release Event (2016)") + ylab("Mean track speed (mps)")
+   
+  ## plot speed by arrival grp
+  sog.relev = ggplot(data=pathspd, aes(x=factor(grp), y=mps)) + 
+    geom_boxplot() + xlab("Arrival Group (2016)") + ylab("Mean track speed (mps)")
   sog.relev
   
    png("Graphics/SoG_by_RelEv.png", width=4, height=4, unit="in", res=600)
      sog.relev
    dev.off()
  
- ggplot(data=pathspd, aes(x=mps, group=factor(RelEv), fill=factor(RelEv))) + 
+ ggplot(data=pathspd, aes(x=mps, group=factor(grp), fill=factor(grp))) + 
    geom_histogram(alpha=0.5, position="identity", binwidth=.1, color="black") +
-   scale_fill_discrete(name="Release\nEvent")
+   scale_fill_discrete(name="Arrival\nGroup")
 
   ## plot speed by mean river stage experienced during the track
-  sog.stg = ggplot(pathspd, aes(y=mps, x=mnStg, colour=factor(RelEv))) + 
-    geom_point(pch=16, cex=4) +
-    xlab("Mean River Stage (ft)") + ylab("Mean track speed (mps)") + 
+  sog.stg = ggplot(pathspd, aes(y=mps, x=stage_arrival)) + 
+    geom_point(pch=16, cex=4, aes(colour=factor(RelEv))) +
+    geom_smooth(method=lm, col="grey40", se=F, lty=2) + 
+    xlab("River Stage upon Arrival (ft)") + ylab("Mean track speed (mps)") + 
     ggtitle("Reach-scale Ground Speed by River Stage") + scale_colour_discrete(name="Release\nEvent")
   sog.stg
-  
+
    png("Graphics/SoG_by_Stg.png", width=6, height=4, unit="in", res=600)
      sog.stg
    dev.off()
@@ -149,7 +164,7 @@ There is a significant effect of release hour, both then it is considered as a c
 ## Statistical effect of release event alone
 Release Events 1,2&3 are not significantly different from one another, nor are 4 and 5 significantly different from one another, but the two groups (1,2,3 vs 4,5) are different. This make sense, as 1,2 and 3 were released before over topping, and 4 and 5 were during the overtopping event. 
 
-```{r RelEv vs spd, echo=TRUE}
+```{r RelEv vs spd, echo=TRUE,eval=FALSE}
   mps.RelEv <- lm(mps ~ RelEv, data=pathspd)  
    summary(mps.RelEv) 
    #plot(mps.RelEv)  # meets assumptions pretty well? 
@@ -234,11 +249,22 @@ Release Events 1,2&3 are not significantly different from one another, nor are 4
    cosrelhr = cos(omega*pathspd$RelHr)
    sinrelhr = sin(omega*pathspd$RelHr)
       
-  fullmod = lm(mps ~ factor(RelEv) + sinrelhr + cosrelhr + mnStg, data=pathspd)
-    summary(fullmod)
-    
+  fullmod = lm(mps ~ factor(grp) + sinrelhr + cosrelhr + mnStg, data=pathspd)
+  #  summary(fullmod)
   # plot(fullmod)  # meets assumptions well enough to be trusted
     
+  fullmod.a = lm(mps ~ factor(grp) + sinrelhr + cosrelhr + stage_arrival, data=pathspd)
+  #  summary(fullmod.a)
+  # plot(fullmod)  # meets assumptions well enough to be trusted
+    
+  dielmod = lm(mps ~ factor(grp) + diel + mnStg, data=pathspd)
+  #  summary(dielmod)    
+    
+  dielmod.a = lm(mps ~ factor(grp) + diel + stage_arrival, data=pathspd)
+  #  summary(dielmod.a)    
+    
+  source("format_lmoutput.R")  
+    ci.table(fullmod.a)
 ```
 
 ## read in and run 2015 data for comparision

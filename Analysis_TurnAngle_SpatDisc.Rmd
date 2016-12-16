@@ -33,7 +33,7 @@ library(HH)           # hov()
 
 ## get data
 ```{r get data}
-  red.r21 <- readRDS("Maestros/RediscSpat_27m.RData")  
+  red.r21 <- readRDS("Maestros/RediscSpat_21mNoGapFish.RData")  
 
    options(digit.secs = 6)
    red.r21$date = as.POSIXct(red.r21$date)     
@@ -69,30 +69,33 @@ library(HH)           # hov()
           mn.stgft = as.numeric(mean(stage_ft))))
    #trash = group_by(red.r21, id) %>% slice(1) %>% data.frame() # check that the prev is working correctly
    
+   # add arrival group
+   red.indivmn$grp = NA
+    red.indivmn$grp[red.indivmn$firstdate < as.POSIXct("2016-03-05")] <- 1
+    red.indivmn$grp[red.indivmn$firstdate > as.POSIXct("2016-03-05")] <- 2
+   
+  # add inverse turn angle to make models fit better   
    red.indivmn$inv.mn.turndeg = 1/red.indivmn$mn.turndeg
    
   ##  Look at normality and heterogeneity of variance
     # check for homogeneitry of var for subsequent ANOVA
-      bartlett.test(red.indivmn$mn.turndeg~red.indivmn$RelEv)
+      bartlett.test(red.indivmn$inv.mn.turndeg~red.indivmn$grp)
         # Bartlett's K-squared = .38811, p=0.533
   
     # check for ~N
       #windows()
-       qqnorm(red.indivmn$mn.turndeg/60)
-       qqline(red.indivmn$mn.turndeg/60)
+       qqnorm(red.indivmn$inv.mn.turndeg/60)
+       qqline(red.indivmn$inv.mn.turndeg/60)
          # not perfect but not tooo bad
        
-      
-      # From Lix et al 1996, the Welch test is the least sensitive (in terms of type 1 error) to skew/kurtosis and heterogeneity of variance
-      #  but this is still a parametric test that compares means (assumes means describe the distribution)
-      #   pt.Welch.aov = oneway.test(red.indivmn$mn.turndeg ~ factor(red.indivmn$RelEv))
-      #      # F = 29.166, num df = 1, denom df = 427.53, p-value = 0.0000001104
-      #   library(userfriendlyscience)
-      #    posthocTGH(y=red.indivmn$mn.turndeg, x=factor(red.indivmn$RelEv)  )
-       
-      # t.test
-   t.test(red.indivmn$mn.turndeg~red.indivmn$RelEv) 
+  # t.test
+   t.test(red.indivmn$inv.mn.turndeg~red.indivmn$grp) 
 ```
+
+## Summary stats
+```{r}
+   
+```   
 
 ```{r plots}
    # all fish together
@@ -102,9 +105,9 @@ library(HH)           # hov()
         axis.text.x=element_blank(),
         axis.ticks.x=element_blank())
   
-   #  by release event:
-   tdeg.relev = ggplot(data=red.indivmn, aes(y=mn.turndeg, x=factor(RelEv))) + 
-     geom_boxplot() + xlab("Release Event") + ylab("Mean Turning Angle")
+   #  by arrival group:
+   tdeg.relev = ggplot(data=red.indivmn, aes(y=mn.turndeg, x=factor(grp))) + 
+     geom_boxplot() + xlab("Arrival Group") + ylab("Mean Turning Angle")
    tdeg.relev
    
    png("Graphics/TDeg_by_RelEv.png", width=4, height=4, unit="in", res=600)
@@ -112,18 +115,19 @@ library(HH)           # hov()
    dev.off()
       
    
-   ggplot(data=red.indivmn, aes(x=mn.turndeg, group=factor(RelEv), fill=factor(RelEv))) +
+   ggplot(data=red.indivmn, aes(x=mn.turndeg, group=factor(grp), fill=factor(RelEv))) +
      geom_histogram(alpha=0.5, position="identity", binwidth=1, color="black") + 
-     scale_fill_discrete(name="Release\nEvent") + xlab("Mean Turning Angle")
+     scale_fill_discrete(name="Arrival\nGroup") + xlab("Mean Turning Angle")
    
   # by release hour
    ggplot(data=red.indivmn, aes(x=factor(RelHr), y=mn.turndeg)) + 
     geom_boxplot() + xlab("Hour of Release") + ylab("Mean Turning Angle")
    
   # by mean River stage
-   tdeg.stg = ggplot(red.indivmn, aes(y=mn.turndeg, x=mn.stgft, colour=factor(RelEv))) + 
-    geom_point(pch=16, cex=4) +
-    xlab("Mean River Stage (ft)") + ylab("Mean Turning Angle") + 
+   tdeg.stg = ggplot(red.indivmn, aes(y=mn.turndeg, x=arriv.stgft)) + 
+    geom_point(aes(colour=factor(RelEv)), pch=16, cex=4) +
+    geom_smooth(method=lm, colour="grey40", se=F, lty=2) +  
+    xlab("River Stage upon Arrival (ft)") + ylab("Mean Turning Angle") + 
     ggtitle("Mean Track Turning Angle by River Stage") + scale_colour_discrete(name="Release\nEvent")
    tdeg.stg
    
@@ -140,19 +144,21 @@ library(HH)           # hov()
     cosrelhr = cos(omega*red.indivmn$RelHr)
     sinrelhr = sin(omega*red.indivmn$RelHr)
       
-    # This uses true release events, not the arrival groups. 
-    
-  fullmod = lm(inv.mn.turndeg ~ factor(RelEv)+arriv.stgft + sinrelhr + cosrelhr, data=red.indivmn)
+     
+  fullmod = lm(inv.mn.turndeg ~ factor(grp)+arriv.stgft + sinrelhr + cosrelhr, data=red.indivmn)
     summary(fullmod)
           
-  intmod = lm(inv.mn.turndeg ~ factor(RelEv)*arriv.stgft + sinrelhr + cosrelhr, data=red.indivmn)
-    summary(intmod)
+  intmod = lm(inv.mn.turndeg ~ factor(grp)*arriv.stgft + sinrelhr + cosrelhr, data=red.indivmn)
+  #  summary(intmod)
     
   norelevmod = lm(inv.mn.turndeg ~ arriv.stgft + sinrelhr + cosrelhr, data=red.indivmn)
-    summary(norelevmod)  
+   # summary(norelevmod)  
     
-  arrivmod = lm(inv.mn.turndeg ~ factor(RelEv) + arriv.stgft + sinrelhr + cosrelhr, data=red.indivmn)
-    summary(arrivmod)
+  arrivmod = lm(inv.mn.turndeg ~ factor(grp) + arriv.stgft + sinrelhr + cosrelhr, data=red.indivmn)
+  #  summary(arrivmod)
+    
+  source("format_lmoutput.R")  
+    ci.table(fullmod)
 ```  
 
 
@@ -198,4 +204,28 @@ library(HH)           # hov()
 
 ```
 
+
+## Plot simple year comparisons
+```{r plot yr comp, echo=FALSE}
+   ta15min = red.indivmn15[,c("id","mn.turndeg","inv.mn.turndeg")]
+   ta15min$year="2015"
+
+   ta16min = red.indivmn[,c("id","mn.turndeg","inv.mn.turndeg")]
+   ta16min$year="2016"   
+   
+   tayr = rbind(ta15min, ta16min)
+
+   ta.yrcomp = ggplot(data=tayr, aes(y=mn.turndeg, x=year)) + geom_boxplot() + ylab("Mean track turn angle")
+   ta.yrcomp
+   
+   png("Graphics/TDeg_by_year.png", width=4, height=4, unit="in", res=600)
+     ta.yrcomp
+   dev.off()
+   
+   t.test(tayr$inv.mn.turndeg ~ tayr$year)
+   summarize(group_by(tayr, year), mean(mn.turndeg), sd(mn.turndeg))
+
+   t.test(red.indivmn15$inv.mn.turndeg[red.indivmn15$run=="LFC"], tayr$inv.mn.turndeg[tayr$year==2016])
+
+```  
 
