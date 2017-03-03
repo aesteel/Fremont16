@@ -1,0 +1,465 @@
+---
+title: "Analysis_MovSpd_TempDisc"
+author: "Anna Steel"
+date: "November 3, 2016"
+output: pdf_document
+---
+
+```{r startup, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(maptools)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+library(adehabitatHR)
+library(stringr)
+library(circular)
+library(psych)        # circadian.mean(); circadian.sd()
+library(multcomp)     # glht()
+#library(userfriendlyscience)
+
+river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
+
+```
+
+## Movement Speed (mean spd per track)
+Using the dataset filtered and discretized by time, we'll calculate the mean movement speed per track
+```{r get data, echo=FALSE}
+  setwd("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir2016/USGS2016PreppedTracksForAnalysis_ARB")
+  csvlist = dir(pattern=".csv")
+  
+  options(digit.secs=6, digits=12) 
+  tracks = do.call(rbind, lapply(csvlist, read.csv, header=FALSE))
+   names(tracks) = c("id","unkdate","Easting","Northing")
+   
+  tracks$id = factor(tracks$id)
+  tracks$fakedate = as.POSIXct(tracks$unkdate*3600*24, origin="2016-01-01 00:00:00", tz="Etc/GMT-8") ## WRONG TRANSLATION ##
+   tracks = tracks[!duplicated(tracks$unkdate),]  # unclear why, but there are 500 duplicated timestamps here; I believe they all have different coordinates. 
+  
+   tr.ltraj = as.ltraj(xy=tracks[,c("Easting","Northing")], date=tracks[,"fakedate"], id=tracks[,"id"], typeII=TRUE)
+   saveRDS(tr.ltraj,"AllTracks_Ltraj.rds")
+   tr.ld = ld(tr.ltraj)
+   
+   tr.ld$spd_mps = tr.ld$dist / tr.ld$dt
+  #red2 <- readRDS("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/RediscTime_20sNoGapFish.RData")  
+  #red2$date = as.POSIXct(red2$date)
+```
+
+
+# add metadata 
+USGS river stage using corrected datum (refering to as USGS temp for now)
+```{r}
+# SacRiver Stage - data  USGS with various gages
+  frestg = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/FRE2016_StgVelQ.csv")
+    
+  frestg = frestg[!is.na(frestg$stage_ft),]
+  frestg$datetimePST = as.POSIXct(frestg$datetimePST, format="%m/%d/%Y %H:%M", tz="Etc/GMT-8")
+  
+   frestg = frestg[order(frestg$datetimePST),]
+   frestg$stageid = rownames(frestg)
+    frestg$stageid = as.numeric(frestg$stageid)
+  
+ ## merge onto position dataset
+   red2 = tr.ld
+   red2 = red2[order(red2$date),]
+    # magic step! thanks stack exchange!
+  interval.vector = c(-Inf, head(frestg$datetimePST,-1))+c(0,diff(as.numeric(frestg$datetimePST))/2 )
+  # interval.vector.dates = c(-Inf, as.POSIXct(interval.vector[2:length(interval.vector)], origin="1970-01-01 00:00:00", tz="Etc/GMT-8"))
+  
+  red2$cdecStgIndex = findInterval( red2$date,  interval.vector )
+  
+  red3 = merge( red2, frestg[,c("stage_ft", "datetimePST","stageid")], by.y="stageid", by.x="cdecStgIndex", all.x=T)
+  red3 = red3[order(red3$date),]
+
+  # Fish Releases
+   fishrel = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/TaggingDataRelEv.csv", 
+                     colClasses=c("RelTime"="character"))
+    fishrel$RelTime = str_pad(fishrel$RelTime, width=4, side="left", pad="0")
+    fishrel$RelTime = str_pad(fishrel$RelTime, width=6, side="right", pad="0")
+    
+    fishrel$datetime = as.POSIXct(paste(fishrel$RelDate, fishrel$RelTime), format="%Y-%m-%d %H%M%S", tz="Etc/GMT-8")
+    names(fishrel)[ncol(fishrel)] <- "datetime.Rel"
+     fishrel$RelHr = as.POSIXlt(fishrel$datetime.Rel)$hour
+        
+  red3 = merge(red3, fishrel, by="id", all.x=T)
+  red3$cdecStgIndex = NULL
+  
+  # stage covariate group
+  red3$grp = NA
+    red3$grp[red3$stage_ft<20.99+1.95] <- 1
+    red3$grp[red3$stage_ft>21.00+1.95 & red3$stage_ft < 28.5+1.95] <- 2
+    ### highlights the single fish from release 3 (36408) that arrived at mid-height stages; not in vemco analysis
+    
+  red4 = red3[red3$grp %in% 1:2,]
+    
+```   
+
+
+Visualize with a variety of plots
+```{r plot raw data, include=FALSE}
+
+       # plot all tracks as lattice in a pdf
+       # pdf("Graphics/Tracks_tempredisc_20sec_Staggered.pdf", width=8, height=10.5)
+       #   lapply(seq(from=24, to=480, by=24), function(x) {plot.ltraj(dl(red2)[(x-23):x])})
+       # dev.off()
+              
+       # plot speeds by size
+        #   windows()
+        #   plot(red2$spd_mps ~ red2$Weight)
+        #    abline(lm(red2$spd_mps ~ red2$Weight), col="red")
+        #   plot(red2$spd_mps ~ red2$FL, xlab="Fork Length", ylab="Ground Speed (mps)", main="Both runs combined")
+        #    abline(lm(red2$spd_mps ~ red2$FL), col="red")
+        #           #  abline(lm(red2$spd_mps[red2$run=="LFC"] ~ red2$FL[red2$run=="LFC"]), col="green3") 
+        #           #  abline(lm(red2$spd_mps[red2$run=="WRC"] ~ red2$FL[red2$run=="WRC"]), col="cyan2")
+        #           #   points(red2$spd_mps[red2$run=="WRC"] ~ red2$FL[red2$run=="WRC"], col="cyan4")
+    
+        #  summary(lm(red2$spd_mps ~ red2$FL))
+        #  summary(lm(red2$spd_mps ~ red2$FL))
+    
+       # plot a few simple scatterplots with spatial elements
+        #   windows()
+        #     plot(red2$spd_mps ~ red2$x) 
+        #     plot(red2$y ~ red2$spd_mps)
+        #     plot(red2$spd_mps ~ red2$dx)
+        #     plot(red2$dy ~ red2$spd_mps)
+            
+      # plot tracks with points color-coded for speed 
+        #           spdmap2 = ggplot(data=red2, aes(x=x, y=y, colour=spd_mps)) + geom_point() + scale_colour_gradientn(colours=rainbow(7)) 
+        #            windows(); spdmap2
+
+```
+
+
+## Calculate overall path speeds
+Using path length and passage time
+```{r mean spd, echo=FALSE}
+   red4 = red4[order(red4$id, red4$datetimePST),]
+   pathspd = summarize(group_by(red4,id),
+                       pathlength_m = round(sum(dist, na.rm=T),1), 
+                       first = min(date), last = max(date), 
+                       RelHr = unique(RelHr), 
+                       RelEv = unique(RelEv), 
+                       FL = unique(FL), weight = unique(weight),
+                       grp = unique(grp),
+                       mnStg = mean(stage_ft),
+                       stage_arrival = stage_ft[1])
+                       
+    pathspd = data.frame(pathspd)
+    pathspd$passagetime_s = as.numeric(difftime(pathspd$last, pathspd$first, units="sec"))
+    pathspd$mps = pathspd$pathlength_m / pathspd$passagetime_s
+    
+#      pathspd$grp = NA
+#       pathspd$grp[pathspd$mnStg<20.99+1.95] <- 1
+#       pathspd$grp[pathspd$mnStg>21.00+1.95 & pathspd$mnStg < 28.5+1.95] <- 2
+#       
+#     pathspd$diel = NA
+#      pathspd$diel[pathspd$RelHr %in% c(3,5,21,23)] <- "night"
+#      pathspd$diel[pathspd$RelHr %in% c(8,10,14,16,17)] <- "day"     
+```
+
+## Plot all speeds
+```{r plot spds, echo=FALSE}
+    setwd("C:/Users/Anna/Documents/GitHub/Fremont16")
+  # plot speed for all fish
+  # windows(3.5,4); par(mar=c(5,5.5,4,4))
+  ggplot(data=pathspd, aes(y=mps, x=1)) + geom_boxplot() + ylab("Ground Speed (mps)") +
+     theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+ 
+  # plot speed by RelHr
+  #windows(5,5); par(mar=c(5,5.5,4,4))
+  #   ggplot(data=pathspd, aes(x=factor(RelHr), y=mps)) + 
+  #     geom_boxplot() + xlab("Hour of Release") + ylab("Ground Speed (mps)")
+  
+  # plot speed by Diel Phase
+  #windows(5,5); par(mar=c(5,5.5,4,4))
+  #   ggplot(data=pathspd, aes(x=factor(diel), y=mps)) + 
+  #     geom_boxplot() + xlab("Diel Phase of Release") + ylab("Ground Speed (mps)")
+   
+  
+  ## plot passage time by stage grp
+  pt.relev = ggplot(data=pathspd, aes(x=factor(grp), y=passagetime_s/60)) + 
+    geom_boxplot() + xlab("Stage Covariate Group (2016)") + ylab("Passage Time through Array (min)") + ylim(0,80) ##### three points omitted with long passtimes; not flagged in vemco analysis (39363, 39431, 39436) #####
+  pt.relev
+  
+   png("Graphics/PassTime_by_CovGrp_USGSdata.png", width=4, height=4, unit="in", res=600)
+     pt.relev
+   dev.off()   
+   
+   
+  ## plot speed by stage grp
+  sog.relev = ggplot(data=pathspd, aes(x=factor(grp), y=mps)) + 
+    geom_boxplot() + xlab("Stage Covariate Group (2016)") + ylab("Mean track speed (mps)")
+  sog.relev
+  
+   png("Graphics/SoG_by_CovGrp_USGSdata.png", width=4, height=4, unit="in", res=600)
+     sog.relev
+   dev.off()
+ 
+ ggplot(data=pathspd, aes(x=mps, group=factor(grp), fill=factor(grp))) + 
+   geom_histogram(alpha=0.5, position="identity", binwidth=.1, color="black") +
+   scale_fill_discrete(name="Arrival\nGroup")
+
+ 
+  ## plot speed by mean river stage experienced during the track
+  sog.stg = ggplot(pathspd, aes(y=mps, x=stage_arrival)) + 
+    geom_point(pch=16, cex=4, aes(colour=factor((grp)))) +
+    geom_smooth(method=lm, col="grey40", se=F, lty=2) + 
+    xlab("River Stage upon Arrival (ft)") + ylab("Mean track speed (mps)") + 
+    ggtitle("Reach-scale Ground Speed by River Stage") +    
+    scale_colour_discrete(name="Stage\nCovariate\nGroup") +
+    geom_point(data=pathspd[pathspd$id%in%c(36382,36597),], col="red", pch=16, cex=4)
+  sog.stg
+
+   png("Graphics/SoG_by_Stg.png", width=6, height=4, unit="in", res=600)
+     sog.stg
+   dev.off()
+```
+
+## Statistical effect of release hour alone
+There is a significant effect of release hour, both then it is considered as a continuous variable and as a factor, but the models and the plots indicate that the effect is very small. We will include the release hour as a mixed effect in future models, but because there is such a huge spread in release hours we won't analyze these groups seperately. 
+```{r RelHr vs spd, echo=TRUE}
+  mps.RelHr <- lm(mps ~ (RelHr), data=pathspd)  
+   summary(mps.RelHr) 
+   #plot(mps.RelHr)  # meets assumptions just fine! 
+   
+   # post-hoc test designed for linear models with factor predictor: multcomp::glht() was recommended
+     pathspd$RelHrfac = factor(pathspd$RelHr)
+     testmod = lm(mps ~ 0+RelHrfac, data = pathspd)
+      summary(testmod)
+     posthoc.mod = glht(testmod, linfct = mcp(RelHrfac="Tukey"))
+      summary(posthoc.mod)
+ 
+     boxplot(mps ~ RelHrfac, data = pathspd)
+```   
+
+
+## Statistical effect of release event alone
+Release Events 1,2&3 are not significantly different from one another, nor are 4 and 5 significantly different from one another, but the two groups (1,2,3 vs 4,5) are different. This make sense, as 1,2 and 3 were released before over topping, and 4 and 5 were during the overtopping event. 
+
+```{r RelEv vs spd, echo=TRUE,eval=FALSE}
+  mps.RelEv <- lm(mps ~ RelEv, data=pathspd)  
+   summary(mps.RelEv) 
+   #plot(mps.RelEv)  # meets assumptions pretty well? 
+   
+   # as an anova test, with tukey posthoc test
+  #   testmod = aov(mps ~ 0+RelEvfac, data = pathspd)
+  #    summary(testmod)
+  #   TukeyHSD(testmod)
+   pathspd$RelEvfac = factor(pathspd$RelEv, levels=c(1,2))
+   t.test(mps ~ 0+RelEvfac, data = pathspd)
+    summarize(group_by(pathspd, RelEvfac), mean(mps, na.rm=T), sd(mps, na.rm=T))
+   
+   boxplot(mps ~ RelEvfac, data = pathspd[pathspd$RelEvfac%in%1:2,], ylab="Mean Track Speed (mps)", xlab="ReleaseEvent")
+   
+   
+   # phase 2: re-assign the two fish from the first release that arrived with the second release
+#    pathspd$grp <- NA
+#     pathspd[pathspd$first < as.POSIXct("2016-03-02"),"grp"] <- 1
+#     pathspd[pathspd$first > as.POSIXct("2016-03-02"),"grp"] <- 2
+#     pathspd$grp = factor(pathspd$grp)
+    
+  mps.Grp <- lm(mps ~ grp, data=pathspd)  
+   summary(mps.Grp) 
+ 
+   t.test(mps ~ 0+grp, data = pathspd)
+    summarize(group_by(pathspd, grp), mean(mps, na.rm=T), sd(mps, na.rm=T))
+   
+   boxplot(mps ~ grp, data = pathspd, ylab="Mean Track Speed (mps)", xlab="Arrival Group")
+```   
+   
+## River Stage upon Arrival
+```{r river stage, echo=FALSE}
+  # by release event
+    data.frame(  summarize(group_by(pathspd, RelEv), med.stage = median(stage_arrival, na.rm=T), mn.stage = mean(stage_arrival, na.rm=T), sd.stage=sd(stage_arrival, na.rm=T), min.stage = min(stage_arrival, na.rm=T), max.stage = max(stage_arrival, na.rm=T)))
+
+  # by group (2 fish from rel 1 lumped in with rel2)
+      data.frame(  summarize(group_by(pathspd, grp), med.stage = median(stage_arrival, na.rm=T), mn.stage = mean(stage_arrival, na.rm=T), sd.stage=sd(stage_arrival, na.rm=T), min.stage = min(stage_arrival, na.rm=T), max.stage = max(stage_arrival, na.rm=T)))
+
+       
+  # SacRiver Stage - pulled from CDEC - ask for QAQC data from DWR if this seems okay 
+    frestg = read.csv("C:/Users/Anna/Documents/GitHub/Fremont16/Maestros/FRE_stage_2016study.csv")
+    frestg = frestg[!is.na(frestg$stage_ft),]
+    frestg = frestg[frestg$stage_ft > 5 ,] # some missing values are recorded as 2 or 5; remove these entirely
+     frestg$timePST = str_pad(frestg$timePST, 4, pad = "0")
+     frestg$datetimePST = as.POSIXct(paste(frestg$datePST, frestg$timePST), format="%Y%m%d %H%M", tz="Etc/GMT-8")
+     frestg$datetimeUTC = as.POSIXct(as.character(frestg$datetimePST + (60*60*8)), tz="GMT")
+     frestg = frestg[order(frestg$datetimePST),]
+     frestg$stageid = rownames(frestg)
+
+  pathspd2 = pathspd
+  pathspd2$RelIndex <- 
+     findInterval( pathspd2$first, c(-Inf, head(frestg$datetimePST,-1))+ c(0,diff(as.numeric(frestg$datetimePST))/2 )) 
+
+  
+   mn.total.stg16 = mean(red2$stage_ft)
+   sd.total.stg16 = sd(red2$stage_ft)
+      mn.total.stg16; sd.total.stg16
+      
+#   # calculate mean of the mn stage estimates per individual
+#   print(paste("mean stage experienced 2016 (ie: mean of stages corresponding to all positions) =", mean(pathspd$mnStg, na.rm=T)))
+#   print(paste("sd stage experienced 2016 (ie: sd of stages corresponding to all positions) =", sd(pathspd$mnStg, na.rm=T)))
+  
+  
+  hg = ggplot(frestg, aes(x=datetimePST, y=stage_ft)) + 
+     geom_line() + geom_hline(aes(yintercept=33.5), lty=2) +
+     geom_point(data=pathspd, aes(x=first, y=stage_arrival, col=factor(RelEv)), pch=16, cex=6) + 
+     ggtitle("Arrival times by river stage at Fremont Weir \n(cdec gauge)") + 
+     xlab("Date (PST)") + ylab("River Stage (ft)") + 
+     scale_colour_manual(name = "Release\nEvent", values =viridis(2), labels = c(1:2))
+
+   hg
+   
+  png("Graphics/Arrival_Hydrograph.png", width=8, height=4, unit="in", res=600)
+   hg
+  dev.off()
+   
+``` 
+
+# build linear model to combine river stage, release event, and release hour (circular)
+```{r final model}
+  omega = 2*pi/24
+   cosrelhr = cos(omega*pathspd$RelHr)
+   sinrelhr = sin(omega*pathspd$RelHr)
+      
+  fullmod = lm(mps ~ factor(grp) + sinrelhr + cosrelhr + mnStg, data=pathspd)
+  #  summary(fullmod)
+  # plot(fullmod)  # meets assumptions well enough to be trusted
+    
+  fullmod.a = lm(mps ~ factor(grp) + sinrelhr + cosrelhr + stage_arrival, data=pathspd)
+  #  summary(fullmod.a)
+  # plot(fullmod)  # meets assumptions well enough to be trusted
+    
+  dielmod = lm(mps ~ factor(grp) + diel + mnStg, data=pathspd)
+  #  summary(dielmod)    
+    
+  dielmod.a = lm(mps ~ factor(grp) + diel + stage_arrival, data=pathspd)
+  #  summary(dielmod.a)    
+    
+  source("format_lmoutput.R")  
+    ci.table(fullmod.a)
+```
+
+## read in and run 2015 data for comparision
+```{r comp2015, echo=FALSE}
+  red15 <- read.csv("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir/DATA-output/TrajectoryTagging_Filtered39ExtraFish_TempDisc20sec_Staggered.csv")  # with staggered the start point
+
+   options(digit.secs = 6)
+   red15$date = as.POSIXct(red15$date, tz="Etc/GMT-8") 
+   
+  # read in stage data  
+  fre2015 = read.csv("C:/Users/Anna/Documents/03_SacBankUSACE/FremontWeir/DATA/CDEC_FRE_stage.csv")
+  names(fre2015) = c("datePST","timePST","stage_ft")
+  
+  fre2015 = fre2015[!is.na(fre2015$stage_ft),]
+     fre2015$timePST = str_pad(fre2015$timePST, 4, pad = "0")
+     fre2015$datetimePST = as.POSIXct(paste(fre2015$datePST, fre2015$timePST), format="%Y%m%d %H%M", tz="Etc/GMT-8")
+     fre2015$datetimeUTC = as.POSIXct(as.character(fre2015$datetimePST + (60*60*8)), tz="GMT")
+     fre2015 = fre2015[order(fre2015$datetimePST),]
+     fre2015$stageid = rownames(fre2015)
+     
+  red15$RelIndex <- 
+     findInterval( red15$date, c(-Inf, head(fre2015$datetimePST,-1))+ c(0,diff(as.numeric(fre2015$datetimePST))/2 )) 
+  
+  red15 = merge(red15, fre2015[,c("stage_ft", "datetimePST","stageid")], by.y="stageid", by.x="RelIndex", all.x=T)
+ 
+  pathspd15 = summarize(group_by(red15,id),
+                          pathlength_m = round(sum(dist, na.rm=T),1), 
+                          first=min(date), last= max(date), 
+                          FL = unique(FL), weight = unique(Weight), 
+                          mnStg = mean(stage_ft),
+                          stage_arrival = stage_ft[1],
+                          run=unique(run), RelHr = unique(RelHr))
+    pathspd15 = data.frame(pathspd15)
+
+    pathspd15$passagetime_s = as.numeric(difftime(pathspd15$last, pathspd15$first, units="sec"))
+    pathspd15$mps = pathspd15$pathlength_m / pathspd15$passagetime_s
+
+  # remove scout fish
+  pathspd15 = pathspd15[pathspd15$id!=51099,]
+
+      
+   mn.total.stg15 = mean(red15$stage_ft)
+   sd.total.stg15 = sd(red15$stage_ft)
+      mn.total.stg15; sd.total.stg15
+  
+#   # calculate mean of the mn stage estimates per individual
+#   print(paste("mean stage experienced 2015 (ie: mean of stages corresponding to all positions) =", mean(pathspd15$mnStg, na.rm=T)))
+#   print(paste("sd stage experienced 2015 (ie: sd of stages corresponding to all positions) =", sd(pathspd15$mnStg, na.rm=T)))
+
+```
+
+## Plot simple year comparisons
+```{r plot yr comp, echo=FALSE}
+   ps15min = pathspd15[,c("id","mps")]
+   ps15min$year="2015"
+
+   ps16min = pathspd[,c("id","mps")]
+   ps16min$year="2016"   
+   
+   psyr = rbind(ps15min, ps16min)
+
+   sog.yrcomp = ggplot(data=psyr, aes(y=mps, x=year)) + geom_boxplot() + ylab("Mean track speed (mps)")
+   sog.yrcomp
+   
+   png("Graphics/SoG_by_year_USGSdata.png", width=4, height=4, unit="in", res=600)
+     sog.yrcomp
+   dev.off()
+   
+   t.test(psyr$mps ~ psyr$year)
+   summarize(group_by(psyr, year), mean(mps), sd(mps))
+
+```  
+
+
+
+
+
+
+
+
+
+
+# Rediscretize to match vemco tracks and run speeds again, as well as turning angle analysis 
+## was a great idea, but for some reason the tracks throw errors. =/ 
+```{r}
+   ## use red4 from line 99 above
+  # discretize in space
+   red4$id = factor(red4$id)
+   red4$burst = factor(red4$burst)
+   
+   red4.sdisc = (redisltraj(dl(red4), u=21, type="space", nnew=5)) 
+    # u=21 is the smallest distance where the code worked for the vemco data
+
+  # convert back to dataframe
+   red4.ssrdz = ld(red4.sdisc)
+     red4.ssrdz=red15.ssrdz[order(red4.ssrdz$id,red4.ssrdz$date),]
+     
+  # recalculate migration speed  
+   red4.ssrdz$spd_mps = red4.ssrdz$dist / red4.ssrdz$dt
+   
+  # add metadata
+   red4.ssrdz = red4.ssrdz[order(red4.ssrdz$date),]
+   red4.ssrdz$cdecStgIndex = findInterval( red4.ssrdz$date,  interval.vector )
+  
+   red5.ssrdz = merge( red4.ssrdz, frestg[,c("stage_ft", "datetimePST","stageid")], by.y="stageid", by.x="cdecStgIndex", all.x=T)
+   red5.ssrdz = red5.ssrdz[order(red5.ssrdz$date),]
+   
+   red5.ssrdz = merge(red5.ssrdz, fishrel, by="id", all.x=T)
+   red5.ssrdz$cdecStgIndex = NULL
+  
+  # stage covariate group
+   red5.ssrdz$grp = NA
+    red5.ssrdz$grp[red3$stage_ft<20.99+1.95] <- 1
+    red5.ssrdz$grp[red3$stage_ft>21.00+1.95 & red5.ssrdz$stage_ft < 28.5+1.95] <- 2
+    ### highlights the single fish from release 3 (36408) that arrived at mid-height stages; not in vemco analysis
+    
+   red6.ssrdz = red5.ssrdz[red5.ssrdz$grp %in% 1:2,]
+ 

@@ -1,0 +1,391 @@
+---
+title: "Kernel UDs 2016"
+author: "Anna Steel"
+date: "October 19, 2016"
+output: pdf_document
+---
+
+```{r, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(maptools)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+library(adehabitatHR)
+library(raster)
+library(stringr)
+#library(userfriendlyscience)
+
+river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
+map.proj = CRS(river3@proj4string@projargs)
+```
+
+# Kernel Utilization Distributions
+### This script uses the temporally rediscretized dataset (currently only 20 sec steps) to create utilization distributions. Here I compare the 2016 data with the 2015 data for LFC - I excluded the WRC for coding simplicity, not scientific reasons. Utiltimately I plan to also consider variability in flow and fish size, but have not yet incorporated those additional variables. 
+
+__________________
+
+## Create kernel UD from tracks
+The fish positions are only those from the first two phases - includes 374 individuals (no individuals with tracks containing a >150m of gap between consecutive positions). 
+
+In 2015 the grid was automated to 10.03m squares, with a smoothing parameter h=3.03. The kernelUD() function in adehabitatLT gives options for how to select a smoothing parameter for the bivariate normal probability space defined at each recorded fish position. In 2015 I used the least squares cross validation to select an appropriate value for h (smoothing parameter) - the algorithm looks for a value of the smoothing parameter (h) where the CV(h) is minimized. In 2015 the value selected for h for LFC was 3.03 (some stochasticity in this, changes slightly by run). _For 2016 I set the grid to 10m exactly._ I ran the kernelUD() function with both lscv and href [the ad hoc method of smoother selection, which is h = Sigma*n^(1/6)] approaches to estimating the smoothing parameter, as well as setting it to match the 2015 analysis (h=3.03). The LSCV method for 2016 estimated a smoothing parameter of 3.09, so for consistency sake I adjusted this to 3.03 to be in accordance with the smoother used for 2015. 
+
+
+## Read in RData object from 2015
+```{r kud15, echo=FALSE}
+      kud15 <- readRDS("Maestros/kud15_final.RData")
+        vud15 = getvolumeUD(kud15)
+      # windows(width=4, height=4)
+        image(vud15[[1]], col=c(heat.colors(6),"white"), main="LFC 2015")
+        xyz.15 <- as.image.SpatialGridDataFrame(vud15[[1]])
+        contour(xyz.15, add=TRUE, nlevels=6, drawlabels=FALSE)
+      print(paste("smoothing parameter h, lscv; 2015-LFC = ",round(kud15$LFC@h$h,3)))
+      
+  # save grid to reference for 2016 UD
+  #  grid15 = SpatialPixels(SpatialPoints(kud15[[1]]@grid ))
+      
+```
+
+## Estimate Kernel UD for 2016 using three methods for setting the smoothing parameter
+Here I used LSCV (as noted above), href (also as noted above), and a set value of h=3.03 as was selected by lscv in 2015. 
+```{r kud 16 all fish, echo=FALSE}
+  # create kud/vud for 2016
+    red8.trdz = readRDS("Maestros/RediscTime_20sNoGapFishStaggered.RData")
+
+  # create an even 4x4m grid for 2016 -> to match Aaron's selection
+    e = extent(615430, 615430+(61*10), 4290820, 4290820+(47*10))
+    r = raster(e)
+    res(r) = c(4,4)   
+    projection(r) = map.proj 
+    grid4 = SpatialPixels(SpatialPoints(coordinates(r)))    
+    
+  
+  #  add proper projection
+    red8.grp = data.frame(grp=red8.trdz[,"run"])
+     xytsp = (red8.trdz[,c("x","y")])
+     coordinates(red8.grp) <- xytsp 
+     proj4string(red8.grp) <- CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
+
+  # create kud using lscv and save to file   
+    #kud16.lscv_g4 = kernelUD(red8.grp[,1], h="LSCV", kern="bivnorm", extent=0.1, grid=grid4)
+       # computationally intensive
+    # saveRDS(kud16.lscv_g4, "Maestros/kud16_lscv_stag_4x4.RData")
+     
+  # read in kud with lscv method   
+     kud16.lscv = readRDS("Maestros/kud16_lscv_stag_4x4.RData")  #
+      print(paste0("smoothing parameter h, lscv; 2016-LFC = ",round(kud16.lscv$LFC@h$h,3)))  ## h=3.438
+
+    # windows()
+    #   plotLSCV(kud16.lscv)
+  
+  # create kud with href and set h value         
+    kud16.href = kernelUD(red8.grp[,1], h="href", kern="bivnorm", extent=0.1, grid=grid4)    
+     print(paste0("smothing parameter h, href; 2016-LFC = ",round(kud16.href$LFC@h$h,3)))
+     
+    kud16.h15 = kernelUD(red8.grp[,1], h=3.03, kern="bivnorm", extent=0.1, grid=grid4) 
+
+    kud16 = kud16.h15
+```
+
+## Convert kernel UDs into volume UDs for plotting
+```{r plot 16 smoother, echo=FALSE, fig.height=4, fig.width=8}        
+      vud16.h15 <- getvolumeUD(kud16.h15) 
+       xyz.h15 <- as.image.SpatialGridDataFrame(vud16.h15[[1]])
+
+  vud16 = vud16.h15 
+   xyz.16 <- as.image.SpatialGridDataFrame(vud16[[1]])
+```
+
+__________________________________
+ 
+## Compare 2016 UD (all fish) with 2015 UD (for 2015-LFC)
+```{r comp contour 15 16, echo=FALSE, fig.height=4, fig.width=8}
+#   # heatmap
+#   png("Graphics/kernelUD_heatmap1516.png", width=10, height=3, units="in", res=600)
+#       par(mfrow=c(1,2))
+#      image(vud15[[1]], col=c(heat.colors(6),"white"), main="LFC 2015; h=3.03")
+#       contour(xyz.15, add=TRUE, nlevels=6, drawlabels=FALSE)  
+#          plot(river3, add=T, col="grey60")
+#      image(vud16.h15[[1]], col=c(heat.colors(6),"white"), main="LFC 2016; h=3.03")
+#       contour(xyz.16, add=TRUE, nlevels=6, drawlabels=FALSE)  
+#          plot(river3, add=T, col="grey60")
+#   dev.off()
+#   
+#   # pverlaid contours
+#   png("Graphics/kernelUD_contours1516.png", width=10, height=3, units="in", res=600)
+#    par(mfrow=c(1,3))
+#      contour(xyz.15, add=FALSE, nlevels=5, levels=25, drawlabels=FALSE, lwd=2.5, col="red", main="25% contour")
+#      contour(xyz.16, add=TRUE, nlevels=5, levels=25, drawlabels=FALSE, lwd=2.5, col="steelblue2")
+#       plot(river3, add=T, col="grey60")
+#      legend("topleft", legend=c("2015","2016"), fill=c("red","steelblue2"))
+#      contour(xyz.15, add=FALSE, nlevels=5, levels=50, drawlabels=FALSE, lwd=2.5,col="red", main="50% contour")
+#       plot(river3, add=T, col="grey60")
+#      contour(xyz.16, add=TRUE, nlevels=5, levels=50, drawlabels=FALSE, lwd=2.5,col="steelblue2")
+#      contour(xyz.15, add=FALSE, nlevels=5, levels=75, drawlabels=FALSE, lwd=2.5,col="red", main="75% contour")
+#      contour(xyz.16, add=TRUE, nlevels=5, levels=75, drawlabels=FALSE, lwd=2.5,col="steelblue2")
+#       plot(river3, add=T, col="grey60")
+#   dev.off()
+```
+
+## Compare similar flows (low flows) across years
+In 2015 the river stage was at nearly 15 ft during all releases. In 2016 there was much more variability, with stages ranging from 16.3 to 31.12. Fish from release 1 passed at slightly lower flows, with a median stage of 18.4 ft and a max stage of 27.4 ft. 
+
+## Summary of the flows experienced by each release group
+```{r kud 16 by release, echo=FALSE} 
+
+   # assign covariate groups to dataset
+      # red8.trdz$grp = red8.trdz$RelEv
+      #  red8.trdz$grp[red8.trdz$id==36597] <- 2 
+      #  red8.trdz$grp[red8.trdz$id==36382] <- 2
+   red8.trdz$grp = NA
+    red8.trdz$grp[red8.trdz$stage_ft<20.99+1.95] <- 1  # USGS temp gage is -1.95 off from old CDEC gage; 20.99ft (USGS temp) is cut-off for low-water group, which is equivalent of 22.94 on old CDEC
+    red8.trdz$grp[red8.trdz$stage_ft>21.00+1.95] <- 2
+    ## perfect match for release events, interstingly enough. 
+    
+  print(data.frame(summarize(group_by(red8.trdz, grp), mn.stg=mean(stage_ft), sd.stg=sd(stage_ft), max.stg=max(stage_ft), min.stg=min(stage_ft), nfish=length(unique(id)))))
+     
+     redgrp1 = data.frame(grp=red8.trdz[red8.trdz$grp==1,"run"])
+     xytsp.1 = (red8.trdz[red8.trdz$grp==1,c("x","y")])
+     coordinates(redgrp1) <- xytsp.1
+     proj4string(redgrp1) <- CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
+
+     redgrp2 = data.frame(grp=red8.trdz[red8.trdz$grp==2,"run"])
+     xytsp.2 = (red8.trdz[red8.trdz$grp==2,c("x","y")])
+     coordinates(redgrp2) <- xytsp.2
+     proj4string(redgrp2) <- CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
+
+    kud16.g1 = kernelUD(redgrp1[,1], h=3.03, kern="bivnorm", extent=0.1, grid=grid4) # set same as lscv, 2015
+     vud16.g1 <- getvolumeUD(kud16.g1) 
+     xyz.g1.16 <- as.image.SpatialGridDataFrame(vud16.g1[[1]])
+
+    kud16.g2 = kernelUD(redgrp2[,1], h=3.03, kern="bivnorm", extent=0.1, grid=grid4) # set same as lscv, 2015
+     vud16.g2 <- getvolumeUD(kud16.g2) 
+     xyz.g2.16 <- as.image.SpatialGridDataFrame(vud16.g2[[1]])
+```
+
+
+## Plots of UD at similar flows (2015 vs 2016-rel1) - heat maps & overlaid contours
+```{r plot by release, echo=FALSE, fig.height=4, fig.width=6}
+    # heatmap of 2015 vs 2016-rel1 
+   #png("Graphics/kernelUD_heatmap1516grp1.png", width=7, height=4, units="in", res=600)     
+    par(mfrow=c(1,2))
+     image(vud15[[1]], col=c(heat.colors(6),"white"), main="LFC 2015; h=3.03")
+      contour(xyz.15, add=TRUE, nlevels=6, drawlabels=FALSE)
+            plot(river3, add=T, col="grey60")
+     image(vud16.g1[[1]], col=c(heat.colors(6),"white"), main="LFC 2016, rel1; h=3.03")
+      contour(xyz.g1.16, add=TRUE, nlevels=6, drawlabels=FALSE)  
+                  plot(river3, add=T, col="grey60")
+   #dev.off()
+   
+   # overlaid contours
+  #  png("Graphics/kernelUD_contours1516grp1.png", width=10, height=3, units="in", res=600)
+     par(mfrow=c(1,3))
+       contour(xyz.15, add=FALSE, nlevels=5, levels=25, drawlabels=FALSE, lwd=2.5, col="red", main="25% contour")
+       contour(xyz.g1.16, add=TRUE, nlevels=5, levels=25, drawlabels=FALSE, lwd=2.5, col="steelblue2")
+        plot(river3, add=T, col="grey60")
+       legend("topleft", legend=c("2015","2016-grp1"), fill=c("red","steelblue2"))
+       contour(xyz.15, add=FALSE, nlevels=5, levels=50, drawlabels=FALSE, lwd=2.5,col="red", main="50% contour")
+        plot(river3, add=T, col="grey60")
+       contour(xyz.g1.16, add=TRUE, nlevels=5, levels=50, drawlabels=FALSE, lwd=2.5,col="steelblue2")
+       contour(xyz.15, add=FALSE, nlevels=5, levels=75, drawlabels=FALSE, lwd=2.5,col="red", main="75% contour")
+       contour(xyz.g1.16, add=TRUE, nlevels=5, levels=75, drawlabels=FALSE, lwd=2.5,col="steelblue2")
+        plot(river3, add=T, col="grey60")
+   # dev.off()
+   
+```
+
+
+## Compare 2016-grp1 UD with 2016-grp2 UD - heat maps & overlaid contours
+```{r comp contour 15 16 release, echo=FALSE, fig.height=4, fig.width=8}
+  # heatmap of 2016-rel1 vs 2016-rel2
+   #png("Graphics/kernelUD_heatmapgrp12.png", width=7, height=4, units="in", res=600) 
+    par(mfrow=c(1,2))
+     image(vud16.g1[[1]], col=c(heat.colors(6),"white"), main="LFC 2016, Group 1; h=3.03")
+      contour(xyz.g1.16, add=TRUE, nlevels=6, drawlabels=FALSE)  
+            plot(river3, add=T, col="grey60")
+     image(vud16.g2[[1]], col=c(heat.colors(6),"white"), main="LFC 2016, Group 2; h=3.03")
+      contour(xyz.g2.16, add=TRUE, nlevels=6, drawlabels=FALSE)
+            plot(river3, add=T, col="grey60")
+  #dev.off()   
+    
+  # overlaid contours 
+  # png("Graphics/kernelUD_contoursgrp12.png", width=10,height=3, units="in", res=600)
+   par(mfrow=c(1,3))
+     contour(xyz.g1.16, add=FALSE, nlevels=5, levels=25, drawlabels=FALSE, lwd=2.5, col="red", main="25% contour")
+     contour(xyz.g2.16, add=TRUE, nlevels=5, levels=25, drawlabels=FALSE, lwd=2.5, col="steelblue2")
+       plot(river3, add=T, col="grey60")
+     legend("topleft", legend=c("Group 1","Group 2"), fill=c("red","steelblue2"))
+     contour(xyz.g1.16, add=FALSE, nlevels=5, levels=50, drawlabels=FALSE, lwd=2.5,col="red", main="50% contour")
+     contour(xyz.g2.16, add=TRUE, nlevels=5, levels=50, drawlabels=FALSE, lwd=2.5,col="steelblue2")
+       plot(river3, add=T, col="grey60")
+     contour(xyz.g1.16, add=FALSE, nlevels=5, levels=75, drawlabels=FALSE, lwd=2.5,col="red", main="75% contour")
+     contour(xyz.g2.16, add=TRUE, nlevels=5, levels=75, drawlabels=FALSE, lwd=2.5,col="steelblue2")
+       plot(river3, add=T, col="grey60")
+  #dev.off()
+```
+
+______________________
+
+
+# Extract cell values from vud / xyz objects
+```{r extract grid values}
+  # final kud objects: kud15, kud16, kud16.g1, kud16.g2, kud16.grid2
+  # final vud objects: vud15, vud16, vud16.g1, vud16.g2, vud16.grid2
+  # final xyz volume objects: xyz.15, xyz.16, xyz.g1.16, xyz.g2.16, xyz.grid2
+  
+  r15 = raster(xyz.15)
+  r16 = raster(xyz.16)
+  r16g1 = raster(xyz.g1.16)
+  r16g2 = raster(xyz.g2.16)
+  # r16grid2 = raster(xyz.grid2)
+  
+  grid15.kud = data.frame(cbind(kud15$LFC@coords, kud15$LFC@data$ud))
+    names(grid15.kud) <- c("Easting","Northing","UD")
+  grid15.vud = data.frame(cbind(vud15$LFC@coords, vud15$LFC@data$n))
+    names(grid15.vud) <- c("Easting","Northing","volUD")
+   grid15.ud = merge(grid15.kud, grid15.vud)
+
+  grid16.kud = data.frame(cbind(kud16$LFC@coords, kud16$LFC@data$ud))
+    names(grid16.kud) <- c("Easting","Northing","UD")
+  grid16.vud = data.frame(cbind(vud16$LFC@coords, vud16$LFC@data$n))
+    names(grid16.vud) <- c("Easting","Northing","volUD")
+   grid16.ud = merge(grid16.kud, grid16.vud)
+
+  grid16.g1.kud = data.frame(cbind(kud16.g1$LFC@coords, kud16.g1$LFC@data$ud))
+    names(grid16.g1.kud) <- c("Easting","Northing","UD")
+  grid16.g1.vud = data.frame(cbind(vud16.g1$LFC@coords, vud16.g1$LFC@data$n))
+    names(grid16.g1.vud) <- c("Easting","Northing","volUD")
+   grid16.g1.ud = merge(grid16.g1.kud, grid16.g1.vud)
+
+  grid16.g2.kud = data.frame(cbind(kud16.g2$LFC@coords, kud16.g2$LFC@data$ud))
+    names(grid16.g2.kud) <- c("Easting","Northing","UD")
+  grid16.g2.vud = data.frame(cbind(vud16.g2$LFC@coords, vud16.g2$LFC@data$n))
+    names(grid16.g2.vud) <- c("Easting","Northing","volUD")
+   grid16.g2.ud = merge(grid16.g2.kud, grid16.g2.vud)
+```
+
+# convert points to raster to plot cleaning and match up with aarons
+```{r aaron plot}
+#    # plot as simple heat map to match aarons better (no contours)
+#    ggplot(data = grid16.g1.ud, aes(x=Easting, y=Northing, color=UD)) + geom_point() +
+#       #scale_colour_gradientn(colours=c("red","orange","yellow","lightgreen", "cyan","darkblue","white"),             
+#       scale_colour_gradientn(colours=c("white","darkblue","cyan", "lightgreen","yellow","orange","red"),
+#                        guide="colorbar")
+   
+   # make it spatial
+   library(sp)
+   library(rgdal)
+   coordinates(grid16.g1.ud) = ~Easting+Northing
+
+   # assign proper projection
+    proj4string(grid16.g1.ud) <- map.proj # set it to lat-long
+    #grid16.g1.ud = spTransform(grid16.g1.ud,CRS("insert your proj4 string here"))
+
+    # tell R this is gridded
+    gridded(grid16.g1.ud) = TRUE
+
+    # use the raster package to convert to a raster and set its CRS:
+    r16g1ud = raster(grid16.g1.ud[,1])
+     projection(r16g1ud) = map.proj
+   r16g1vud = raster(grid16.g1.ud[,2])
+     projection(r16g1vud) = map.proj
+
+    # Now have a look:
+     colorramp.ud = c("white","darkblue","dodgerblue","aquamarine", "lightgreen","yellow","gold","orange","red","darkred")   
+      plot(r16g1ud, col=colorramp.ud, interpolate=TRUE, asp=1, main="First Release (UD)")
+     colorramp.vud = c("red","orange","gold","yellow","lightgreen","aquamarine","steelblue1", "dodgerblue","darkblue","white")
+      plot(r16g1vud, col=colorramp.vud, interpolate=TRUE, asp=1, main="First Release (VUD)")
+      plot(river3, add=TRUE)
+     
+      
+    #### get bathymetry file from aaron and underlay it here  
+      
+      
+# ### help code that might make grid size smaller
+# #defining spatial grid data frame
+# S=5 #scale to which it is to be converted
+# psize<-psdeg[1]/S    # psdeg is the pixel size of old grid
+# bb<-c@bbox #bounding box where "c" is the old grid
+# 
+# cs <- c(psize, psize) #new cell size
+# cc <- bb[, 1] + (cs/2) # new cell centre
+# cd <- ceiling(diff(t(bb))/cs) # new cell dimensions
+# 
+# deggrid <- GridTopology(cellcentre.offset=cc,cellsize=cs,cells.dim=cd) # grid formation
+# 
+# k<-array(0,c(Mdeg*Ndeg*S^2)) #dataframe for new grid
+# 
+# class<-array(k)
+# class<-as.data.frame(class) 
+# Ddeg <- SpatialGridDataFrame(deggrid, class , proj4string = "+proj=utm +zone=35 +south +ellps=WGS84 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs") # spatial grid dataframe formation
+```
+
+## Subtract rasters to discribe and plot differences
+```{r}
+    # make it spatial
+    coordinates(grid16.g2.ud) = ~Easting+Northing
+
+    # assign proper projection
+    proj4string(grid16.g2.ud) <- map.proj # set it to lat-long
+    #grid16.g1.ud = spTransform(grid16.g1.ud,CRS("insert your proj4 string here"))
+
+    # tell R this is gridded
+    gridded(grid16.g2.ud) = TRUE
+
+    # use the raster package to convert to a raster and set its CRS:
+    r16g2 = raster(grid16.g2.ud)
+     projection(r16g2) = map.proj
+
+     # subtract g1 and g2
+     trash = r16g2 - r16g2
+ 
+     plot(trash)
+```
+
+## Look at centroid of highest density   
+```{r}   
+  # pull the centroid of the grid cell with the maximum density for each group 
+   max15 = grid15.ud[which(grid15.ud$UD == max(grid15.ud$UD)),]
+   max16 = grid16.ud[which(grid16.ud$UD == max(grid16.ud$UD)),]
+   max16.g1 = grid16.g1.ud[which(grid16.g1.ud$UD == max(grid16.g1.ud$UD)),]
+   max16.g2 = grid16.g2.ud[which(grid16.g2.ud$UD == max(grid16.g2.ud$UD)),]
+#  max.grid2 = grid16.grid2.ud[which(grid16.grid2.ud$UD == max(grid16.grid2.ud$UD)),]
+    
+  # look at these on the graphic
+  windows(); par(mfrow=c(2,2))
+  image(xyz.15, main="2015 all", asp=1)  
+   abline(h=max15$Northing, col="blue")
+   abline(v=max15$Easting, col="blue")
+   text(max15$Easting+30, max15$Northing-30, paste(round(max15$Easting,0),round(max15$Northing,0),sep=", "), adj=0, cex=.8)
+  image(xyz.16, main="2016 all", asp=1)  
+   abline(h=max16$Northing, col="blue")
+   abline(v=max16$Easting, col="blue")
+   text(max16$Easting+30, max16$Northing-30, paste(max16$Easting,max16$Northing,sep=", "), adj=0, cex=.8)
+  image(xyz.g1.16, main="2016 Group 1", asp=1)  
+   abline(h=max16.g1$Northing, col="blue")
+   abline(v=max16.g1$Easting, col="blue")
+   text(max16.g1$Easting+30, max16.g1$Northing-30, paste(max16.g1$Easting,max16.g1$Northing,sep=", "), adj=0, cex=.8)
+  image(xyz.g2.16, main="2016 Group 2", asp=1)  
+   abline(h=max16.g2$Northing, col="blue")
+   abline(v=max16.g2$Easting, col="blue")
+   text(max16.g2$Easting+30, max16.g2$Northing-30, paste(max16.g2$Easting,max16.g2$Northing,sep=", "), adj=0, cex=.8)
+   
+   
+  # look at these on the graphic - comparing grid of 10 and a grid of 2
+  windows(); par(mfrow=c(1,2))
+  image(xyz.16, main="Grid Cells 10x10 - 2016 all", asp=1)  
+   abline(h=max16$Northing, col="blue")
+   abline(v=max16$Easting, col="blue")
+   text(max16$Easting+30, max16$Northing-30, paste(max16$Easting,max16$Northing,sep=", "), adj=0, cex=.8)
+  image(xyz.grid2, main="Grid Cells 2x2 - 2016 all", asp=1)  
+   abline(h=max.grid2$Northing, col="blue")
+   abline(v=max.grid2$Easting, col="blue")
+   text(max.grid2$Easting+30, max.grid2$Northing-30, paste(max.grid2$Easting,max.grid2$Northing,sep=", "), adj=0, cex=.8)
+   
+```  

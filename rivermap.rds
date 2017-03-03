@@ -1,0 +1,43 @@
+new("SpatialLinesDataFrame"
+    , data = structure(list(Id = c(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 
+0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L), Length_m = c(2520.09165975, 
+17423.6501643, 28252.3481653, 22010.4559567, 5697.97943697, 14970.4780635, 
+5395.0670754, 4014.65606121, 7370.67653567, 1257.46555134, 1472.01493008, 
+788.713157781, 5227.53388855, 2535.3230867, 1288.90551789, 3550.52156505, 
+2257.21009529, 1756.00236954, 2917.44697407), MS_below = structure(c(19L, 
+18L, 17L, 16L, 15L, 14L, 13L, 12L, 11L, 8L, 6L, 7L, 9L, 5L, 10L, 
+1L, 4L, 3L, 2L), .Label = c("KLB", "MS00m1", "MS00m2", "MS01", 
+"MS02", "MS03", "MS04", "MS05", "MS06", "MS07", "MS08", "MS09", 
+"MS10", "MS11", "MS12", "MS13", "MS14m4m5", "MS15", "NA"), class = "factor"), 
+    MS_above = structure(c(18L, 17L, 16L, 15L, 14L, 13L, 12L, 
+    11L, 10L, 7L, 5L, 6L, 8L, 4L, 9L, 3L, 1L, 2L, 19L), .Label = c("KLB", 
+    "MS00m1", "MS00m2", "MS01", "MS02", "MS03", "MS04", "MS05", 
+    "MS06", "MS07", "MS08", "MS09", "MS10", "MS11", "MS12", "MS13", 
+    "ms14m4m5", "MS15", "NA"), class = "factor")), .Names = c("Id", 
+"Length_m", "MS_below", "MS_above"), row.names = 0:18, class = "data.frame")
+    , lines = list(<S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>, 
+    <S4 object of class structure("Lines", package = "sp")>)
+    , bbox = structure(c(-121.736927245315, 38.163317273758, -121.501208781214, 
+38.8607807396122), .Dim = c(2L, 2L), .Dimnames = list(c("x", 
+"y"), c("min", "max")))
+    , proj4string = new("CRS"
+    , projargs = "+proj=longlat +ellps=WGS84"
+)
+)

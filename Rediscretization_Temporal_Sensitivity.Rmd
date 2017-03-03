@@ -1,0 +1,561 @@
+---
+title: "Rediscretization_Temporal - SensitivityAnalysis"
+author: "Anna Steel"
+date: "September 6, 2016"
+output: pdf_document
+---
+```{r, include=FALSE} 
+# required packages
+library(dplyr)
+library(sp)
+library(rgdal)
+library(rgeos)
+library(maptools)
+library(ggplot2)
+library(grid) 
+library(cowplot)
+library(viridis)
+library(adehabitatLT)
+library(adehabitatHR)
+library(stringr)
+library(stringr)
+library(raster)
+
+river3 = readOGR("C:/Users/Anna/Documents/GitHub/Fremont16/GIS/2004_channel","2004_channel_freTightclip")
+map.proj = CRS(river3@proj4string@projargs)
+
+```
+
+## Load data
+```{r}
+  options(digits=20) #keep 
+  load("Maestros/AllFish_FiltSec5Gaps.RData")  # single object, named red9
+  
+   dim(red9) # 76269 detections 
+   length(unique(red9$id))  # 374 unique fish
+   
+   ndetects.fish = summarize(group_by(red9, id), ndet = n())  
+     mean(ndetects.fish$ndet) # 203.9 per fish
+     range(ndetects.fish$ndet) # ranges from 22 - 578
+
+   red9.ltraj = as.ltraj(xy=red9[,c("east","north")], date=red9$date, 
+                id=factor(red9$id), burst = factor(red9$burst),
+                infolocs=red9[,c("Hpes","east","north")])
+
+```
+
+## Set up list for collecting rediscrerized datasets
+```{r}
+   xx = list()
+```   
+
+## Set up dataframe for collecting step-wise SoG values after discretization (autocorrelation issues)
+```{r}
+  a = data.frame(interval = 2:30, meansog = NA, sdsog = NA, medsog = NA, npos = NA, nposfish = NA)
+```
+
+## Set up dataframe for collecting path-level SoG values after discretization
+```{r}
+  b = data.frame(interval = 2:30, mean.pspd = NA, sd.pspd = NA, med.pspd = NA, npos = NA, nposfish = NA)
+```
+
+## For this pass, I'm not going to stagger first detection
+- here is the code incase I want to add it back in
+```{r, echo=FALSE, eval=FALSE}
+      # stagger first detection across all fish
+      #   - if first detection has an x value greater than 615575 then keep it (>100m from start)
+      #       - there are 64 fish for which this applies
+      #   - otherwise, pick randomly from the points before that location
+
+      # pull number of points for each id that are before the threshold
+     n.prethres = red9 %>%
+        filter(x<615575) %>%
+        group_by(id) %>%
+        summarize(n.pre = n())
+     n.prethres = as.data.frame(n.prethres)
+     
+       # add column with the first detection selected for use for that id
+       samplefunc = function(x) sample(1:x,1)
+       set.seed(23)
+       n.prethres$first.det = unlist(lapply(n.prethres$n.pre, samplefunc))
+
+      # subset the original data frame using the randomly sampled first detection
+     stag.prep = red9 %>%
+        group_by(id) %>%
+        mutate(detect.num = 1:n()) 
+     stag.prep = as.data.frame(stag.prep)
+     reddf.stag = merge(stag.prep, n.prethres, all.x=T)
+      reddf.stag[is.na(reddf.stag$first.det),"first.det"] <- 1  # if first detection > threshold, use it
+      reddf.stag = reddf.stag[order(reddf.stag$id, reddf.stag$detect.num),]
+      reddf.stag = reddf.stag[reddf.stag$detect.num >= reddf.stag$first.det,]
+
+      reddf.stag$n.pre <- NULL
+      reddf.stag$detect.num <- NULL
+```
+
+## Loop including Rediscretization of Tracks & sequential point SoG calculations
+- Using secondary filtered data (incl removal of positions with >150m gap) to rediscretize tracks for further analysis
+- The basic stats of the resulting dataset are saved
+- SoG is the speed between each position, averaged over all values (not first aggregated by fish - thus this has problems with autocorrelation)
+- The mean, median, and sd of these are calculated and saved 
+```{r}
+  for (i in 2:30)
+   { # Discretize in Time
+      red9.trdz = ld(redisltraj(red9.ltraj, u=i, type="time", nnew=10))
+       red9.trdz$run = "LFC" # creates a common grouping variable to make UD with all points
+      red9.trdz=red9.trdz[order(red9.trdz$id,red9.trdz$date),]
+   
+     # recalculate migration speed  
+      red9.trdz$spd_mps = red9.trdz$dist / red9.trdz$dt
+       
+     # save to list
+      xx[[i-1]] <- red9.trdz; names(xx)[[i-1]] <- paste0("Step",i)
+      
+     # calculate run stats
+      a[a$interval==i,"meansog"] <- round(  mean(red9.trdz$spd_mps, na.rm=T) , 3)
+      a[a$interval==i,"sdsog"]   <- round(    sd(red9.trdz$spd_mps, na.rm=T) , 3)
+      a[a$interval==i,"medsog"]  <- round(median(red9.trdz$spd_mps, na.rm=T) , 3)
+      a[a$interval==i,"npos"]    <- round(  nrow(red9.trdz)                  , 3)
+
+     # calculate nposfish
+      ndetects.discr = summarize(group_by(red9.trdz, id), ndet = n())  
+      a[a$interval==i,"nposfish"]    <- round(  mean(ndetects.discr$ndet)        , 3)
+   }  
+```
+
+
+## Loop including Rediscretization of Tracks & Path-level SoG calculations
+- Using primary and secondary filtered data (incl removal of positions with >150m gap) to rediscretize tracks for further analysis
+- The basic stats of the resulting dataset are saved
+- SoG is total path length / time between first and last detection, per fish
+- The mean, median, and sd of these are calculated and saved 
+```{r}
+  for (i in 2:30)
+   { # Discretize in Time
+      red9.trdz = ld(redisltraj(red9.ltraj, u=i, type="time", nnew=10))
+       red9.trdz$run = "LFC" # creates a common grouping variable to make UD with all points
+      red9.trdz=red9.trdz[order(red9.trdz$id,red9.trdz$date),]
+   
+     # recalculate migration speed  
+      red9.trdz$spd_mps = red9.trdz$dist / red9.trdz$dt
+       
+     # save to list
+      xx[[i-1]] <- red9.trdz; names(xx)[[i-1]] <- paste0("Step",i)
+
+     # calculate path-level speeds for each fish   
+      options(digits=7)
+      pathspd = summarize(group_by(red9.trdz,id),
+                 pathlength_m = round(sum(dist, na.rm=T),1), 
+                 first = min(date), last = max(date),
+                 n=n())
+       pathspd = data.frame(pathspd)
+       pathspd$passagetime_s = as.numeric(difftime(pathspd$last, pathspd$first, units="sec"))
+       pathspd$mps = pathspd$pathlength_m / pathspd$passagetime_s
+
+      # calculate run stats
+      b[b$interval==i,"mean.pspd"] <- round(  mean(pathspd$mps, na.rm=T) , 3)
+      b[b$interval==i,"sd.pspd"]   <- round(    sd(pathspd$mps, na.rm=T) , 3)
+      b[b$interval==i,"med.pspd"]  <- round(median(pathspd$mps, na.rm=T) , 3)
+      b[b$interval==i,"npos"]    <- round(  nrow(red9.trdz)            , 3)
+      b[b$interval==i,"nposfish"]<- round(  mean(pathspd$n)            , 3)
+   }  
+```
+
+
+## Plot the Speed results
+```{r}
+  windows()
+    plotmean = ggplot(data = b, aes(y=mean.pspd, x=interval)) +
+        geom_point(col="steelblue") + geom_line(col="steelblue") + 
+       xlab("Rediscretization Interval") + ylab("Mean Path\nSpeed over Ground")
+    
+    plotsd = ggplot(data = b, aes(y=sd.pspd, x=interval)) +
+        geom_point(col="green3") + geom_line(col="green3") + 
+       xlab("Rediscretization Interval") + ylab("SD of Path\nSpeed over Ground")
+        
+    plotmed = ggplot(data = b, aes(y=med.pspd, x=interval)) +
+        geom_point(col="purple") + geom_line(col="purple") + 
+       xlab("Rediscretization Interval") + ylab("Median Path\nSpeed over Ground")
+    
+   plot_grid(plotmean, plotsd, plotmed, ncol=1, align="v")
+```
+
+## Run saved rediscretizations through kernel density code with set smoothing parameter (h=3.03)
+```{r}
+  # create an even 10x10m grid for 2016
+    e = extent(615430, 615430+(61*10), 4290820, 4290820+(47*10))
+    r = raster(e)
+    res(r) = c(10,10)   
+    projection(r) = map.proj 
+    grid10 = SpatialPixels(SpatialPoints(coordinates(r)))    
+    
+  # create an even 2x2m grid for 2016
+    e = extent(615430, 615430+(610), 4290820, 4290820+(470))
+    r = raster(e)
+    res(r) = c(2,2)   
+    projection(r) = map.proj 
+    grid2 = SpatialPixels(SpatialPoints(coordinates(r)))    
+
+  # select only 5 representative values for discretization
+    xx.sel = list(Step2=xx[[2-1]], Step5=xx[[5-1]], 
+                  Step10=xx[[10-1]], Step20=xx[[20-1]], 
+                  Step30=xx[[30-1]])
+
+  #  add proper projection and create kud using individually selected h, via lscv
+#     projkud.lscv = function(trdz) { grp = data.frame(grp=trdz[,"run"])
+#                                xytsp = (trdz[,c("x","y")])
+#                                coordinates(grp) <- xytsp 
+#                                proj4string(grp) <- CRS("+proj=utm +zone=10 +datum=WGS84
+#                                                         +units=m +no_defs +ellps=WGS84
+#                                                         +towgs84=0,0,0") 
+#                                kud = kernelUD(grp[,1], h="LSCV", kern="bivnorm", 
+#                                               extent=0.1, 
+#                                               grid=grid10) 
+#                                return(kud$LFC)}
+    
+  #  add proper projection and create kud using h=2
+    projkud2 = function(trdz) { grp = data.frame(grp=trdz[,"run"])
+                               xytsp = (trdz[,c("x","y")])
+                               coordinates(grp) <- xytsp 
+                               proj4string(grp) <- CRS("+proj=utm +zone=10 +datum=WGS84
+                                                        +units=m +no_defs +ellps=WGS84
+                                                        +towgs84=0,0,0") 
+                               kud = kernelUD(grp[,1], h=2, kern="bivnorm", 
+                                              extent=0.1, 
+                                              grid=grid10) 
+                               return(kud$LFC)}
+    projkud2.g2 = function(trdz) { grp = data.frame(grp=trdz[,"run"])
+                               xytsp = (trdz[,c("x","y")])
+                               coordinates(grp) <- xytsp 
+                               proj4string(grp) <- CRS("+proj=utm +zone=10 +datum=WGS84
+                                                        +units=m +no_defs +ellps=WGS84
+                                                        +towgs84=0,0,0") 
+                               kud = kernelUD(grp[,1], h=2, kern="bivnorm", 
+                                              extent=0.1, 
+                                              grid=grid2) 
+                               return(kud$LFC)}
+
+  #  add proper projection and create kud using h=3.03
+    projkud303 = function(trdz) { grp = data.frame(grp=trdz[,"run"])
+                               xytsp = (trdz[,c("x","y")])
+                               coordinates(grp) <- xytsp 
+                               proj4string(grp) <- CRS("+proj=utm +zone=10 +datum=WGS84
+                                                        +units=m +no_defs +ellps=WGS84
+                                                        +towgs84=0,0,0") 
+                               kud = kernelUD(grp[,1], h=3.03, kern="bivnorm", 
+                                              extent=0.1, 
+                                              grid=grid10) 
+                               return(kud$LFC)}
+   projkud303.g2 = function(trdz) { grp = data.frame(grp=trdz[,"run"])
+                               xytsp = (trdz[,c("x","y")])
+                               coordinates(grp) <- xytsp 
+                               proj4string(grp) <- CRS("+proj=utm +zone=10 +datum=WGS84
+                                                        +units=m +no_defs +ellps=WGS84
+                                                        +towgs84=0,0,0") 
+                               kud = kernelUD(grp[,1], h=3.03, kern="bivnorm", 
+                                              extent=0.1, 
+                                              grid=grid2) 
+                               return(kud$LFC)}
+       
+   #  add proper projection and create kud using h=5
+    projkud5 = function(trdz) { grp = data.frame(grp=trdz[,"run"])
+                               xytsp = (trdz[,c("x","y")])
+                               coordinates(grp) <- xytsp 
+                               proj4string(grp) <- CRS("+proj=utm +zone=10 +datum=WGS84
+                                                        +units=m +no_defs +ellps=WGS84
+                                                        +towgs84=0,0,0") 
+                               kud = kernelUD(grp[,1], h=5, kern="bivnorm", 
+                                              extent=0.1, 
+                                              grid=grid10) 
+                               return(kud$LFC)}
+   projkud5.g2 = function(trdz) { grp = data.frame(grp=trdz[,"run"])
+                               xytsp = (trdz[,c("x","y")])
+                               coordinates(grp) <- xytsp 
+                               proj4string(grp) <- CRS("+proj=utm +zone=10 +datum=WGS84
+                                                        +units=m +no_defs +ellps=WGS84
+                                                        +towgs84=0,0,0") 
+                               kud = kernelUD(grp[,1], h=5, kern="bivnorm", 
+                                              extent=0.1, 
+                                              grid=grid2) 
+                               return(kud$LFC)}
+
+   #  add proper projection and create kud using h=10
+    projkud10 = function(trdz) { grp = data.frame(grp=trdz[,"run"])
+                               xytsp = (trdz[,c("x","y")])
+                               coordinates(grp) <- xytsp 
+                               proj4string(grp) <- CRS("+proj=utm +zone=10 +datum=WGS84
+                                                        +units=m +no_defs +ellps=WGS84
+                                                        +towgs84=0,0,0") 
+                               kud = kernelUD(grp[,1], h=10, kern="bivnorm", 
+                                              extent=0.1, 
+                                              grid=grid10) 
+                               return(kud$LFC)}
+    projkud10.g2 = function(trdz) { grp = data.frame(grp=trdz[,"run"])
+                               xytsp = (trdz[,c("x","y")])
+                               coordinates(grp) <- xytsp 
+                               proj4string(grp) <- CRS("+proj=utm +zone=10 +datum=WGS84
+                                                        +units=m +no_defs +ellps=WGS84
+                                                        +towgs84=0,0,0") 
+                               kud = kernelUD(grp[,1], h=10, kern="bivnorm", 
+                                              extent=0.1, 
+                                              grid=grid2) 
+                               return(kud$LFC)}
+
+     #spxx.sel = lapply(xx.sel[[1]], projkud)   # didn't work but loop does. go with it.
+#     spxx.sel.lscv = list()
+#     for(i in 1:5) { # can't run i=1 or i=2 b/c vector allocation is too large
+#         spxx.sel.lscv[[i]] <- projkud.lscv(xx.sel[[i]])
+#         names(spxx.sel.lscv)[[i]] <- names(xx.sel)[[i]]
+#     }
+    
+    spxx.sel.2 = list()
+    for(i in 1:5) { 
+        spxx.sel.2[[i]] <- projkud2(xx.sel[[i]])
+        names(spxx.sel.2)[[i]] <- names(xx.sel)[[i]]
+    }
+    spxx.sel.303 = list()
+    for(i in 1:5) { 
+        spxx.sel.303[[i]] <- projkud303(xx.sel[[i]])
+        names(spxx.sel.303)[[i]] <- names(xx.sel)[[i]]
+    }
+    spxx.sel.5 = list()
+    for(i in 1:5) { 
+        spxx.sel.5[[i]] <- projkud5(xx.sel[[i]])
+        names(spxx.sel.5)[[i]] <- names(xx.sel)[[i]]
+    }
+    spxx.sel.10 = list()
+    for(i in 1:5) { 
+        spxx.sel.10[[i]] <- projkud10(xx.sel[[i]])
+        names(spxx.sel.10)[[i]] <- names(xx.sel)[[i]]
+    }
+    
+    
+    spxxg10.list = list(spxx.sel.2, spxx.sel.303, spxx.sel.5, spxx.sel.10)
+     names(spxxg10.list) = c("h=2","h=3.03","h=5","h=10")
+
+     
+     
+    spxx.g2.sel.2 = list()
+    for(i in 1:5) { 
+        spxx.g2.sel.2[[i]] <- projkud2.g2(xx.sel[[i]])
+        names(spxx.g2.sel.2)[[i]] <- names(xx.sel)[[i]]
+    }
+    spxx.g2.sel.303 = list()
+    for(i in 1:5) { 
+        spxx.g2.sel.303[[i]] <- projkud303.g2(xx.sel[[i]])
+        names(spxx.g2.sel.303)[[i]] <- names(xx.sel)[[i]]
+    }
+    spxx.g2.sel.5 = list()
+    for(i in 1:5) { 
+        spxx.g2.sel.5[[i]] <- projkud5.g2(xx.sel[[i]])
+        names(spxx.g2.sel.5)[[i]] <- names(xx.sel)[[i]]
+    }
+    spxx.g2.sel.10 = list()
+    for(i in 1:5) { 
+        spxx.g2.sel.10[[i]] <- projkud10.g2(xx.sel[[i]])
+        names(spxx.g2.sel.10)[[i]] <- names(xx.sel)[[i]]
+    }
+    
+    
+    spxxg2.list = list(spxx.g2.sel.2, spxx.g2.sel.303, spxx.g2.sel.5, spxx.g2.sel.10)
+     names(spxxg2.list) = c("h=2","h=3.03","h=5","h=10")
+
+```
+
+## Create volume UDs from kernel UDs and plot with contours
+```{r}
+    windows(); par(mfrow=c(4,5), mar=c(1,1,2,1))
+    for(j in 1:4) {
+      spxx.sel <- spxxg10.list[[j]]
+      for(i in 1:5) {    
+            tempxx = spxx.sel[[i]]
+            vud = getvolumeUD(tempxx)
+            image(vud, main=paste0(names(spxx.sel)[[i]],"sec; ",names(spxxg10.list)[j] ),
+                  col=c(heat.colors(6),"white"))
+            contour(as.image.SpatialGridDataFrame(vud), add=TRUE, nlevels=6)
+      }
+    }
+     
+    windows(); par(mfrow=c(4,5), mar=c(1,1,2,1))
+    for(j in 1:4) {
+      spxx.g2.sel <- spxxg2.list[[j]]
+      for(i in 1:5) {    
+            tempxx = spxx.g2.sel[[i]]
+            vud = getvolumeUD(tempxx)
+            image(vud, main=paste0(names(spxx.g2.sel)[[i]],"sec; ",names(spxxg2.list)[j] ),
+                  col=c(heat.colors(6),"white"))
+            contour(as.image.SpatialGridDataFrame(vud), add=TRUE, nlevels=6)
+      }
+    }
+
+```
+
+# Extract cell values from vud / xyz objects
+```{r extract grid values}
+
+  cellvalg10.list <- vector("list", 4) 
+  for(j in 1:4) {
+    cellvalg10.list[[j]] <- vector("list",5)
+    for(i in 1:5) {
+      gridx.kud = data.frame(cbind(spxxg10.list[[j]][[i]]@coords, spxxg10.list[[j]][[i]]@data$ud))
+       names(gridx.kud) <- c("Easting","Northing","UD")
+      cellvalg10.list[[j]][[i]] <- gridx.kud
+    }
+    names(cellvalg10.list[[j]]) <- names(spxxg10.list[[j]])
+  }
+  names(cellvalg10.list) <- names(spxxg10.list)  
+   saveRDS(cellvalg10.list,"DiscSens.RData")
+   
+  # write each element of the list to a seperate .csv file
+   for(j in 1:4) {
+   lapply(1:length(cellvalg10.list[[j]]), function(i) write.csv(cellvalg10.list[[j]][[i]], 
+                                      file = paste0("DiscSens/grid10_",
+                                                    names(cellvalg10.list)[j],"_",
+                                                    names(cellvalg10.list[[j]][i]), ".csv"),
+                                      row.names = FALSE ) )
+   }
+  
+  # plot one of the lists to test
+  testdat = cellvalg10.list[[4]][[5]]
+  plot( x= testdat$Easting,  y=testdat$Northing, pch=16,
+             col= ifelse(testdat$UD>=.000025,"red","grey90"))
+  
+  
+  
+ ## repeat for grid 2  
+ cellvalg2.list <- vector("list", 4) 
+  for(j in 1:4) {
+    cellvalg2.list[[j]] <- vector("list",5)
+    for(i in 1:5) {
+      gridx.kud = data.frame(cbind(spxxg2.list[[j]][[i]]@coords, spxxg2.list[[j]][[i]]@data$ud))
+       names(gridx.kud) <- c("Easting","Northing","UD")
+      cellvalg2.list[[j]][[i]] <- gridx.kud
+    }
+    names(cellvalg2.list[[j]]) <- names(spxxg2.list[[j]])
+  }
+  names(cellvalg2.list) <- names(spxxg2.list)  
+   saveRDS(cellvalg2.list,"DiscSens.RData")
+   
+  # write each element of the list to a seperate .csv file
+   for(j in 1:4) {
+   lapply(1:length(cellvalg2.list[[j]]), function(i) write.csv(cellvalg2.list[[j]][[i]], 
+                                      file = paste0("DiscSens/grid2_",
+                                                    names(cellvalg2.list)[j],"_",
+                                                    names(cellvalg2.list[[j]][i]), ".csv"),
+                                      row.names = FALSE ) )
+   }
+  
+  # plot one of the lists to test
+  testdat = cellvalg2.list[[4]][[5]]
+  plot( x= testdat$Easting,  y=testdat$Northing, pch=16,
+             col= ifelse(testdat$UD>=.000025,"red","grey90"))
+      
+```
+
+## try to plot histgrams or other metrics to see how the parameters affect the UDs
+```{r}
+  png("DiscSens/UTMhist_g10h3t20.png", width=16, height=8, units="in", res=600)
+  testdat = cellvalg10.list[[2]][[4]] # h=3.03, 20sec - parameters used in the report
+  options(scipen = 999)
+  #windows()
+  par(mfrow=c(1,2))
+  eastsum = summarize(group_by(testdat,Easting), sumUD=sum(UD))
+   barplot(eastsum$sumUD, names.arg=eastsum$Easting, las=2, cex.names=.7, main="Grid 10m: h=3.03, t=20s")
+   mtext(paste0("Peak at ",eastsum$Easting[eastsum$sumUD==max(eastsum$sumUD)]), side=3, adj=0)
+  northsum = summarize(group_by(testdat,Northing), sumUD=sum(UD))
+   barplot(northsum$sumUD, names.arg=northsum$Northing, las=2, horiz=TRUE,cex.names=.7)
+   mtext(paste0("Peak at ",northsum$Northing[northsum$sumUD==max(northsum$sumUD)]), side=3, adj=1)
+    dev.off()
+
+  png("DiscSens/UTMhist_g10h2t22.png", width=16, height=8, units="in", res=600)
+  testdat.sm = cellvalg10.list[[1]][[1]] # h=3.03, 20sec - parameters used in the report
+  options(scipen = 999)
+  #windows()
+  par(mfrow=c(1,2))
+  eastsum = summarize(group_by(testdat.sm,Easting), sumUD=sum(UD))
+   barplot(eastsum$sumUD, names.arg=eastsum$Easting, las=2, cex.names=.7, main="Grid 10m: h=2, t=2s")
+   mtext(paste0("Peak at ",eastsum$Easting[eastsum$sumUD==max(eastsum$sumUD)]), side=3, adj=0)
+  northsum = summarize(group_by(testdat.sm,Northing), sumUD=sum(UD))
+   barplot(northsum$sumUD, names.arg=northsum$Northing, las=2, horiz=TRUE,cex.names=.7)
+   mtext(paste0("Peak at ",northsum$Northing[northsum$sumUD==max(northsum$sumUD)]), side=3, adj=1)
+    dev.off()
+
+  png("DiscSens/UTMhist_g10h10t30.png", width=16, height=8, units="in", res=600)
+  testdat.lg = cellvalg10.list[[4]][[5]] # h=3.03, 20sec - parameters used in the report
+  options(scipen = 999)
+  #windows()
+  par(mfrow=c(1,2))
+  eastsum = summarize(group_by(testdat.lg,Easting), sumUD=sum(UD))
+   barplot(eastsum$sumUD, names.arg=eastsum$Easting, las=2, cex.names=.7, main="Grid 10m: h=10, t=30s")
+   mtext(paste0("Peak at ",eastsum$Easting[eastsum$sumUD==max(eastsum$sumUD)]), side=3, adj=0)
+  northsum = summarize(group_by(testdat.lg,Northing), sumUD=sum(UD))
+   barplot(northsum$sumUD, names.arg=northsum$Northing, las=2, horiz=TRUE,cex.names=.7)
+    mtext(paste0("Peak at ",northsum$Northing[northsum$sumUD==max(northsum$sumUD)]), side=3, adj=1)
+   dev.off()
+
+   
+   
+  png("DiscSens/UTMhist_g2h3t20.png", width=16, height=8, units="in", res=600)
+  testdat = cellvalg2.list[[2]][[4]] # h=3.03, 20sec - parameters used in the report
+  options(scipen = 999)
+  #windows()
+  par(mfrow=c(1,2))
+  eastsum = summarize(group_by(testdat,Easting), sumUD=sum(UD))
+   barplot(eastsum$sumUD, names.arg=eastsum$Easting, las=2, cex.names=.7, main="Grid 2m: h=3.03, t=20s")
+   mtext(paste0("Peak at ",eastsum$Easting[eastsum$sumUD==max(eastsum$sumUD)]), side=3, adj=0)
+  northsum = summarize(group_by(testdat,Northing), sumUD=sum(UD))
+   barplot(northsum$sumUD, names.arg=northsum$Northing, las=2, horiz=TRUE,cex.names=.7)
+   mtext(paste0("Peak at ",northsum$Northing[northsum$sumUD==max(northsum$sumUD)]), side=3, adj=1)
+    dev.off()
+
+  png("DiscSens/UTMhist_g2h2t2.png", width=16, height=8, units="in", res=600)
+  testdat.sm = cellvalg2.list[[1]][[1]] # h=2, 2sec - parameters used in the report
+  options(scipen = 999)
+  #windows()
+  par(mfrow=c(1,2))
+  eastsum = summarize(group_by(testdat.sm,Easting), sumUD=sum(UD))
+   barplot(eastsum$sumUD, names.arg=eastsum$Easting, las=2, cex.names=.7, main="Grid 2m: h=2, t=2s")
+   mtext(paste0("Peak at ",eastsum$Easting[eastsum$sumUD==max(eastsum$sumUD)]), side=3, adj=0)
+  northsum = summarize(group_by(testdat.sm,Northing), sumUD=sum(UD))
+   barplot(northsum$sumUD, names.arg=northsum$Northing, las=2, horiz=TRUE,cex.names=.7)
+   mtext(paste0("Peak at ",northsum$Northing[northsum$sumUD==max(northsum$sumUD)]), side=3, adj=1)
+    dev.off()
+
+  png("DiscSens/UTMhist_g2h10t30.png", width=16, height=8, units="in", res=600)
+  testdat.lg = cellvalg2.list[[4]][[5]] # h=10, 30sec - parameters used in the report
+  options(scipen = 999)
+  #windows()
+  par(mfrow=c(1,2))
+  eastsum = summarize(group_by(testdat.lg,Easting), sumUD=sum(UD))
+   barplot(eastsum$sumUD, names.arg=eastsum$Easting, las=2, cex.names=.7, main="Grid 2m: h=10, t=30s")
+   mtext(paste0("Peak at ",eastsum$Easting[eastsum$sumUD==max(eastsum$sumUD)]), side=3, adj=0)
+  northsum = summarize(group_by(testdat.lg,Northing), sumUD=sum(UD))
+   barplot(northsum$sumUD, names.arg=northsum$Northing, las=2, horiz=TRUE,cex.names=.7)
+   mtext(paste0("Peak at ",northsum$Northing[northsum$sumUD==max(northsum$sumUD)]), side=3, adj=1)
+    dev.off()
+   
+  png("DiscSens/UTMhist_g2h2t30.png", width=16, height=8, units="in", res=600)
+  testdat.mx1 = cellvalg2.list[[1]][[5]] # h=2, 30sec - parameters used in the report
+  options(scipen = 999)
+  #windows()
+  par(mfrow=c(1,2))
+  eastsum = summarize(group_by(testdat.mx1,Easting), sumUD=sum(UD))
+   barplot(eastsum$sumUD, names.arg=eastsum$Easting, las=2, cex.names=.7, main="Grid 2m: h=2, t=30s")
+   mtext(paste0("Peak at ",eastsum$Easting[eastsum$sumUD==max(eastsum$sumUD)]), side=3, adj=0)
+  northsum = summarize(group_by(testdat.mx1,Northing), sumUD=sum(UD))
+   barplot(northsum$sumUD, names.arg=northsum$Northing, las=2, horiz=TRUE,cex.names=.7)
+   mtext(paste0("Peak at ",northsum$Northing[northsum$sumUD==max(northsum$sumUD)]), side=3, adj=1)
+    dev.off()
+   
+  png("DiscSens/UTMhist_g2h10t2.png", width=16, height=8, units="in", res=600)
+  testdat.mx2 = cellvalg2.list[[4]][[1]] # h=10, 2sec - parameters used in the report
+  options(scipen = 999)
+  #windows()
+   par(mfrow=c(1,2))
+  eastsum = summarize(group_by(testdat.mx2,Easting), sumUD=sum(UD))
+   barplot(eastsum$sumUD, names.arg=eastsum$Easting, las=2, cex.names=.7, main="Grid 2m: h=10, t=2s")
+   mtext(paste0("Peak at ",eastsum$Easting[eastsum$sumUD==max(eastsum$sumUD)]), side=3, adj=0)
+  northsum = summarize(group_by(testdat.mx2,Northing), sumUD=sum(UD))
+   barplot(northsum$sumUD, names.arg=northsum$Northing, las=2, horiz=TRUE,cex.names=.7)
+   mtext(paste0("Peak at ",northsum$Northing[northsum$sumUD==max(northsum$sumUD)]), side=3, adj=1)
+    dev.off()
